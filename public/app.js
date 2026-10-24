@@ -29,6 +29,7 @@ function message(m) {
   $("#message").textContent = m;
 }
 async function action(fn) {
+  $("#identity").disabled = true;
   try {
     document.querySelectorAll("button").forEach((b) => (b.disabled = true));
     await fn();
@@ -37,6 +38,7 @@ async function action(fn) {
   } catch (e) {
     message(e.message);
   } finally {
+    $("#identity").disabled = false;
     document.querySelectorAll("button").forEach((b) => (b.disabled = false));
   }
 }

@@ -1,4 +1,18 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+async function switchIdentity(page: Page, user: string) {
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/api/demo/session") &&
+        r.request().method() === "POST",
+    ),
+    page.getByLabel("模拟身份").selectOption(user),
+  ]);
+  await response.finished();
+  await expect(page.getByLabel("模拟身份")).toBeEnabled();
+  expect((await (await page.request.get("/api/me")).json()).user).toBe(user);
+}
+
 test("four screens, reload recovery, recipient check, scoped export, revoke, mobile", async ({
   page,
 }) => {
@@ -32,17 +46,17 @@ test("four screens, reload recovery, recipient check, scoped export, revoke, mob
     path: "test-results/payment-desktop.png",
     fullPage: true,
   });
-  await page.getByLabel("模拟身份").selectOption("recipient");
+  await switchIdentity(page, "recipient");
   await page.getByRole("link", { name: "02   版本审核" }).click();
   await page.locator("#invoiceSelect").selectOption({ index: 1 });
   await page.getByRole("button", { name: "核对模拟到账" }).click();
   await expect(page.getByRole("status")).toContainText("操作已保存");
-  await page.getByLabel("模拟身份").selectOption("payer");
+  await switchIdentity(page, "payer");
   await page.getByRole("link", { name: "04   授权对账" }).click();
   await page.locator("#invoiceSelect").selectOption({ index: 1 });
   await page.getByRole("button", { name: "授予当前版本只读访问" }).click();
   await expect(page.getByText("v1 → accountant").first()).toBeVisible();
-  await page.getByLabel("模拟身份").selectOption("accountant");
+  await switchIdentity(page, "accountant");
   await page.getByRole("button", { name: "查看", exact: true }).first().click();
   await expect(page.locator("#disclosed")).toContainText("amountAtomic");
   await expect(page.locator("#disclosed")).not.toContainText("purpose");
@@ -53,9 +67,9 @@ test("four screens, reload recovery, recipient check, scoped export, revoke, mob
   const exported = await page.request.get(href!);
   expect(exported.ok()).toBeTruthy();
   expect(await exported.json()).not.toHaveProperty("address");
-  await page.getByLabel("模拟身份").selectOption("payer");
+  await switchIdentity(page, "payer");
   await page.getByRole("button", { name: "撤权", exact: true }).first().click();
-  await page.getByLabel("模拟身份").selectOption("accountant");
+  await switchIdentity(page, "accountant");
   expect((await page.request.get(href!)).status()).toBe(403);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
