@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>隐账 · Privacy Payments</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="mode">
+      L0 沙盒 · 模拟，无真实资金移动 <span>L1 已禁用 / L2 BLOCKED</span>
+    </div>
+    <aside>
+      <a class="brand" href="#invoices">◈ 隐账<span>PRIVACY PAYMENTS</span></a>
+      <p class="muted">DEMO WORKSPACE</p>
+      <nav>
+        <a href="#invoices">01 &nbsp; 私密账单</a
+        ><a href="#review">02 &nbsp; 版本审核</a
+        ><a href="#payment">03 &nbsp; 付款确认</a
+        ><a href="#disclosure">04 &nbsp; 授权对账</a>
+      </nav>
+      <div class="boundary">
+        访问控制 + 存储加密<br />服务端可解密，不是端到端加密。<br />仅使用假数据。
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">每笔付款，都有明确边界</p>
+          <h1 id="title">私密账单</h1>
+        </div>
+        <label
+          >模拟身份<select id="identity">
+            <option value="payer">付款人 / payer</option>
+            <option value="recipient">收款人 / recipient</option>
+            <option value="accountant">会计 / viewer</option>
+            <option value="admin">管理员 / admin</option>
+          </select></label
+        >
+      </header>
+      <div id="message" role="status" aria-live="polite"></div>
+      <div id="content"></div>
+      <footer>
+        模拟，无真实资金移动 · 不收集钱包私钥或助记词 · 撤权无法收回已下载的内容
+      </footer>
+    </main>
+  </body>
+</html>
