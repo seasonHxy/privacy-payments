@@ -398,3 +398,122 @@ test("offline NEAR final event matching is never labelled verified real settleme
   (failed.receipts_outcome[0]!.outcome as any).status = { Failure: {} };
   assert.equal(inspectNearReceipt(failed, expected).status, "REVIEW_REQUIRED");
 });
+
+test("review regression: one atomic underpayment stays REVIEW_REQUIRED, zero received", () => {
+  const { s } = fixture();
+  const i = s.create("payer", { ...payload, amountAtomic: "1" });
+  s.approve("payer", i.invoiceId, 1);
+  const a = s.start("payer", i.invoiceId, 1, "boundary-key");
+  const q = s.quote("payer", a.id);
+  s.confirm("payer", a.id, 1, q.quote!.fingerprint);
+  s.submit("payer", a.id, "sim:underpaid");
+  const verified = s.verify(a.id);
+  assert.equal(verified.state, "REVIEW_REQUIRED");
+  assert.equal(verified.evidence!.amountAtomic, "0");
+  assert.equal(s.get("payer", i.invoiceId).settled, false);
+});
+test("review regression: corrupted unknown reference never becomes successful; evidence collision rolls back", () => {
+  const { s } = fixture(),
+    { a, i } = ready(s);
+  s.submit("payer", a.id, "sim:success");
+  s.store.tx((state) => {
+    state.attempts.find((x) => x.id === a.id)!.reference = "unrecognized";
+  });
+  assert.equal(s.verify(a.id).state, "UNKNOWN");
+  assert.equal(s.get("payer", i.invoiceId).settled, false);
+  s.store.tx((state) => {
+    state.attempts.find((x) => x.id === a.id)!.reference = "sim:success";
+  });
+  s.verify(a.id);
+  const second = s.create("payer", payload);
+  s.approve("payer", second.invoiceId, 1);
+  const b = s.start("payer", second.invoiceId, 1, "second-attempt-key");
+  const q = s.quote("payer", b.id);
+  s.confirm("payer", b.id, 1, q.quote!.fingerprint);
+  s.submit("payer", b.id, "sim:success");
+  s.store.tx((state) => {
+    state.attempts.find((x) => x.id === a.id)!.evidence!.eventId =
+      `mock:${b.id}`;
+  });
+  fails(() => s.verify(b.id), "EVIDENCE_ALREADY_ASSIGNED");
+  assert.equal(s.status("payer", b.id).state, "SUBMITTED");
+  assert.equal(s.status("payer", b.id).evidence, undefined);
+  assert.equal(s.get("payer", second.invoiceId).settled, false);
+});
+test("review regression: malformed receipt shapes return conservative result, never throw", () => {
+  const expected = {
+    hash: "fixture",
+    contract: "fixture.testnet",
+    payer: "payer.testnet",
+    recipient: "recipient.testnet",
+    amountAtomic: "1",
+  };
+  const base = {
+    final_execution_status: "FINAL",
+    transaction: {
+      hash: expected.hash,
+      signer_id: expected.payer,
+      receiver_id: expected.contract,
+    },
+    status: { SuccessValue: "" },
+    receipts_outcome: [
+      {
+        outcome: {
+          executor_id: expected.contract,
+          status: { SuccessValue: "" },
+          logs: [] as unknown,
+        },
+      },
+    ],
+  };
+  for (const value of [
+    null,
+    1,
+    "x",
+    [],
+    {},
+    { ...base, receipts_outcome: [null] },
+    { ...base, receipts_outcome: [1] },
+    { ...base, receipts_outcome: "x" },
+    {
+      ...base,
+      receipts_outcome: [
+        {
+          outcome: {
+            executor_id: expected.contract,
+            status: { SuccessValue: "" },
+            logs: 3,
+          },
+        },
+      ],
+    },
+  ])
+    assert.notEqual(
+      inspectNearReceipt(value, expected).status,
+      "OFFLINE_MATCH_ONLY",
+    );
+  for (const data of [
+    [null],
+    [1],
+    ["x"],
+    [
+      {
+        old_owner_id: expected.payer,
+        new_owner_id: expected.recipient,
+        amount: 1,
+      },
+    ],
+  ]) {
+    const b = structuredClone(base);
+    b.receipts_outcome[0]!.outcome.logs = [
+      "EVENT_JSON:" +
+        JSON.stringify({
+          standard: "nep141",
+          version: "1.0.0",
+          event: "ft_transfer",
+          data,
+        }),
+    ];
+    assert.equal(inspectNearReceipt(b, expected).status, "REVIEW_REQUIRED");
+  }
+});

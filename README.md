@@ -61,6 +61,9 @@ npm run test:e2e
 - [隐私与信任边界](docs/PRIVACY.md)
 - [测试验收报告](docs/ACCEPTANCE.md)
 - [任务进度与下一阶段](docs/TASKS.md)
+- [对抗性复核与修复](docs/REVIEW.md)
 - [桌面截图](docs/evidence/payment-desktop.png) / [移动截图](docs/evidence/disclosure-mobile.png)
 
 本轮开发于 2026-10-24 UTC 在空云端仓库开始（香港时间 2026-10-25）。这是赛前工作记录，不保证比赛资格；规则与最终提交由用户另行核实。仓库初始无 README、AGENTS.md 或已有代码；工作分支是环境预设的 `work`，未改动远程 main。
+
+下载源码 ZIP 只包含源码、依赖锁文件、示例配置和文字文档，不包含截图、依赖目录、Git 历史、运行数据或密钥。`.env.example` 仅列出安全示例值，服务不会自动读取该文件。

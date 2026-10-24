@@ -171,7 +171,14 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
     const a = service.submit(res.locals.user, req.params.id, b.reference);
     res.status(202).json(a);
     setImmediate(() => {
-      service.verify(a.id);
+      try {
+        service.verify(a.id);
+      } catch {
+        // Keep persisted SUBMITTED for explicit recovery. Never turn verifier errors into success.
+        process.stderr.write(
+          "Verification deferred: local evidence check failed.\n",
+        );
+      }
     });
   });
   app.post("/api/payment-attempts/:id/recheck", (req, res) => {

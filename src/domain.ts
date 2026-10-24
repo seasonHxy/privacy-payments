@@ -532,11 +532,24 @@ export class Service {
       const a = s.attempts.find((x) => x.id === id);
       check(a, "NOT_FOUND", 404);
       if (!["SUBMITTED", "VERIFYING", "UNKNOWN"].includes(a.state)) return a;
-      const expected = a.revision;
       const i = s.invoices.find((x) => x.id === a.invoiceId)!;
       const q = a.quote!;
       const ref = a.reference;
-      check(a.revision === expected, "STALE_VERIFICATION");
+      // Fail closed on an unsupported persisted reference, including after restart.
+      if (
+        !ref ||
+        ![
+          "sim:success",
+          "sim:timeout",
+          "sim:underpaid",
+          "sim:failed",
+          "sim:refund-partial",
+        ].includes(ref)
+      ) {
+        this.transition(a, "UNKNOWN");
+        a.reason = "UNRECOGNIZED_EXECUTION_REFERENCE";
+        return a;
+      }
       if (ref === "sim:timeout") {
         this.transition(a, "UNKNOWN");
         a.reason = "NO_FINAL_EVIDENCE";
@@ -555,7 +568,10 @@ export class Service {
         asset: q.asset,
         payer: "demo:payer",
         recipient: q.recipient,
-        amountAtomic: ref === "sim:underpaid" ? "1" : q.outputAtomic,
+        amountAtomic:
+          ref === "sim:underpaid"
+            ? (BigInt(q.outputAtomic) - 1n).toString()
+            : q.outputAtomic,
         final: true,
         success: true,
       };

@@ -15,7 +15,7 @@ Node 24 LTS + Express 5 + TypeScript，独立静态前端，SQLite WAL。单个�
 - 正整数字符串上限 78 位；BigInt 计算。费用为模拟固定 100 原子单位；输入含费用须仍在 78 位范围。decimals=6 是本地模拟配置，不暗示真实资产精度。
 - 规范化 JSON 对键排序后 SHA-256，仅用于应用内绑定，绝不发送上链。确认绑定账单版本、模式、资产、网络、收款/退款目的地、输入、输出、费用、期限、退款条件。
 - `workspace + idempotencyKey` 同参数复用，同键异参数 409。活动尝试存在则不同键也无法付款。UNKNOWN、REVIEW_REQUIRED、REFUNDED 都不自动释放新付款能力。
-- 状态 revision 单调递增。当前 worker 完全同步、事务内判定，没有网络等待后迟到写入窗口；重放只会在可核验状态进行。接入异步真实 worker 前必须改为实际 revision CAS 更新，不能把现有内存 revision 检查当作异步 CAS。
+- 状态 revision 单调递增。当前 worker 完全同步、事务内判定，没有网络等待后迟到写入窗口；重放只会在可核验状态进行。接入异步真实 worker 前必须改为实际 revision CAS 更新，当前没有异步 CAS，已删除无意义的 revision 自比较，不能据此声称解决了未来异步 worker 的迟到响应。
 - SUBMITTED 只记录标识。模拟 verifier 才能设置 VERIFIED_SUCCESS；客户端不能提供任意证据。收款方确认单独记录。
 - 全额退款匹配辅助函数校验资产、网络、目的地、金额和最终性；没有调用方能把模拟部分退款设置为 REFUNDED。退款 API 尚未实现。
 - L1/L2 DisabledAdapter 五种能力均抛明确不可用错误，没有回退。
