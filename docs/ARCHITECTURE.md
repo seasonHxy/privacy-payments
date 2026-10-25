@@ -1,12 +1,14 @@
 # 架构与内部契约
 
-## 有意的 MVP 取舍
+更新：2026-10-25 新增独立 PostgreSQL 关系存储路径，支持 SQL 唯一约束、行锁和 revision CAS，已实际运行。详见 [POSTGRES.md](POSTGRES.md)。下述聚合状态设计与缺少关系索引的说明只针对保留的 SQLite 路径，不能用于描述 PostgreSQL 路径。
 
-Node 24 LTS + Express 5 + TypeScript，独立静态前端，SQLite WAL。单个加密聚合状态包含 Invoice、InvoiceVersion、Approval、PaymentAttempt、QuoteSnapshot、SettlementEvidence、DisclosureGrant、AuditEvent。预置 Membership 表达工作区/角色，只有 demo 工作区出现在 UI。没有 PostgreSQL、ORM 或数据库行级权限。
+## 保留的 SQLite 演示路径
+
+Node 24 LTS + Express 5 + TypeScript，独立静态前端，SQLite WAL。单个加密聚合状态包含 Invoice、InvoiceVersion、Approval、PaymentAttempt、QuoteSnapshot、SettlementEvidence、DisclosureGrant、AuditEvent。预置 Membership 表达工作区/角色，只有 demo 工作区出现在 UI。此 SQLite 路径不使用 PostgreSQL；新增 PostgreSQL 路径见 POSTGRES.md。两者都没有数据库 RLS，权限在服务端验证。
 
 `Store` 初始化 schema v1：`state(id INTEGER PRIMARY KEY CHECK(id=1), payload BLOB NOT NULL)`。每次服务调用在 `BEGIN IMMEDIATE` 中读取、解密、校验、修改、重新认证加密并提交；异常回滚。SQLite 文件级写锁跨连接串行化，busy_timeout=5 秒。所有版本唯一、工作区幂等键唯一、每账单唯一活动尝试和证据不可复用检查在同一锁内完成。没有另一个可绕过此事务的应用写入路径。
 
-**与完整规格的差异：** 唯一约束由事务内应用不变量维护，不是各实体独立 SQL 唯一索引；没有 PostgreSQL 行锁或多节点扩展性。所有读也会重新加密整个状态，因此只适合小规模假数据演示。正式版本必须拆分关系表、添加数据库唯一/部分索引、迁移版本、并发压测、密钥轮换与恢复方案。本交付不声称已经完成上述工作。
+**SQLite 路径与完整规格的差异：** 唯一约束由事务内应用不变量维护，不是各实体独立 SQL 唯一索引；没有 PostgreSQL 行锁或多节点扩展性。所有读也会重新加密整个状态，因此只适合小规模假数据演示。PostgreSQL 路径已拆分关系表、添加唯一/部分索引、迁移版本并完成限定并发测试。生产压力测试、密钥轮换与灾备恢复仍未完成。
 
 ## 不变量
 
@@ -15,7 +17,7 @@ Node 24 LTS + Express 5 + TypeScript，独立静态前端，SQLite WAL。单个�
 - 正整数字符串上限 78 位；BigInt 计算。费用为模拟固定 100 原子单位；输入含费用须仍在 78 位范围。decimals=6 是本地模拟配置，不暗示真实资产精度。
 - 规范化 JSON 对键排序后 SHA-256，仅用于应用内绑定，绝不发送上链。确认绑定账单版本、模式、资产、网络、收款/退款目的地、输入、输出、费用、期限、退款条件。
 - `workspace + idempotencyKey` 同参数复用，同键异参数 409。活动尝试存在则不同键也无法付款。UNKNOWN、REVIEW_REQUIRED、REFUNDED 都不自动释放新付款能力。
-- 状态 revision 单调递增。当前 worker 完全同步、事务内判定，没有网络等待后迟到写入窗口；重放只会在可核验状态进行。接入异步真实 worker 前必须改为实际 revision CAS 更新，当前没有异步 CAS，已删除无意义的 revision 自比较，不能据此声称解决了未来异步 worker 的迟到响应。
+- 状态 revision 单调递增。领域核验逻辑同步运行于存储事务内；重放只会在可核验状态进行。PostgreSQL 路径现已实现 expectedRevision 校验及 SQL 条件更新 CAS，SQLite 路径仍依靠同步写事务。真实网络 worker/持久队列尚未实现。
 - SUBMITTED 只记录标识。模拟 verifier 才能设置 VERIFIED_SUCCESS；客户端不能提供任意证据。收款方确认单独记录。
 - 全额退款匹配辅助函数校验资产、网络、目的地、金额和最终性；没有调用方能把模拟部分退款设置为 REFUNDED。退款 API 尚未实现。
 - L1/L2 DisabledAdapter 五种能力均抛明确不可用错误，没有回退。

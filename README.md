@@ -44,9 +44,9 @@ npm run test:e2e
 
 ## 数据和限制
 
-- Express 5 + TypeScript + Node 24 `node:sqlite`，前端为无框架 HTML/CSS/JS。未采用 Next.js/PostgreSQL，见架构说明。
+- Express 5 + TypeScript，前端为无框架 HTML/CSS/JS。默认 Node 24 SQLite 演示；新增可选 PostgreSQL 关系存储、迁移、唯一约束、行锁和 revision CAS，已在本地 PostgreSQL 18.6 单独实测，见 [PostgreSQL 指南](docs/POSTGRES.md)。
 - 首次启动创建 `data/storage.key`（随机 AES 存储密钥，**不是钱包密钥**）及加密 SQLite 数据库。`data/` 已忽略，不提交。备份/恢复必须同时保留密钥及数据库；没有密钥无法解密。
-- 可以通过 `DATA_DIR`、`PORT` 更改目录和端口。`PAYMENT_MODE` 只接受 L0，设置 L1/L2 会在启动时失败。
+- 可以通过 `DATA_DIR`、`PORT` 更改目录和端口。`PAYMENT_MODE` 只接受 L0，设置 L1/L2 会在启动时失败。PostgreSQL 使用 `STORAGE_DRIVER=postgres` 和本地 `DATABASE_URL`；不会自动迁移旧 SQLite 数据。
 - 固定允许资产 `mock:USD`，6 位小数，模拟网络 `mock-local`；不是 USDC，也不是 testUSD。金额 API 只接收正十进制整数字符串，BigInt 运算。
 - 模拟登录可切换预置身份，**没有真正身份认证保证**。不得用它接入 L1/L2。会话为 HttpOnly、SameSite=Strict、有期限的服务端令牌；重启后需重新选择演示身份，付款状态仍持久保存。
 - 存储加密和对象访问控制，不是端到端加密或服务商不可见。服务端持有解密能力。主机同时持有密钥和数据库，不抵御完整主机入侵。
@@ -62,6 +62,8 @@ npm run test:e2e
 - [测试验收报告](docs/ACCEPTANCE.md)
 - [任务进度与下一阶段](docs/TASKS.md)
 - [对抗性复核与修复](docs/REVIEW.md)
+- [PostgreSQL 运行、迁移和实测](docs/POSTGRES.md)
+- [真实认证与 L1 最小输入](docs/AUTH_L1_INPUTS.md)
 - [桌面截图](docs/evidence/payment-desktop.png) / [移动截图](docs/evidence/disclosure-mobile.png)
 
 本轮开发于 2026-10-24 UTC 在空云端仓库开始（香港时间 2026-10-25）。这是赛前工作记录，不保证比赛资格；规则与最终提交由用户另行核实。仓库初始无 README、AGENTS.md 或已有代码；工作分支是环境预设的 `work`，未改动远程 main。

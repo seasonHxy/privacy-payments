@@ -1,6 +1,6 @@
 # L0 验收报告
 
-验证日期：2026-10-24 UTC。环境 Node v24.19.0 / Linux / 系统 Chromium。全部输入均为假账单、模拟地址或离线合成 fixture。初始仓库为空；未触碰 quant-trading-agent。
+验证日期：2026-10-25 UTC（包含前轮记录）。环境 Node v24.19.0 / Linux / 系统 Chromium。全部输入均为假账单、模拟地址或离线合成 fixture。初始仓库为空；未触碰 quant-trading-agent。
 
 ## 结果分类
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | npm run lint | PASS | ESLint src/tests，无错误；初轮未使用参数问题已修复 |
 | npm run typecheck | PASS | 严格检查服务端、测试和 Playwright 配置 |
-| npm test | PASS | 22 tests，22 pass，0 fail，0 skipped |
+| npm test | PASS | 23 tests，23 pass，0 fail，0 skipped |
 | npm run build | PASS | TypeScript 编译至 dist；npm start 启动的是构建结果 |
 | npm run test:e2e | PASS | 2/2 Chromium 浏览器测试，约 4.9 秒；完整闭环、刷新恢复、修改和 UNKNOWN 锁定 |
 | npm audit --omit=dev | PASS | 当次 registry 审计报告 0 vulnerabilities；不是安全审计证明 |
@@ -16,7 +16,8 @@
 | Playwright 自带浏览器安装 | BLOCKED（已替代） | CDN 返回 403 Domain forbidden；改用已安装 /usr/bin/chromium 完成测试，没有扩大权限 |
 | L1 真实 testUSD 付款/核验 | NOT RUN / 禁用 | 无真实账户、钱包、资产合约/精度核实或资金操作授权；只有离线 helper 测试 |
 | L2 保密付款/退款 | BLOCKED / 禁用 | 完整历史邀请权限、真实收款和退款证据、授权条件缺失 |
-| PostgreSQL、生产登录、异步 worker、真实钱包 | NOT RUN / 未实现 | 不能视为生产完成 |
+| PostgreSQL 关系持久化、迁移、行锁、CAS | PASS | 实际 PostgreSQL 18.6；10 个子场景，Node 含父测试计数 11/11；另有 2/2 PostgreSQL 浏览器 E2E |
+| 生产登录、独立网络 worker、真实钱包 | NOT RUN / 未实现 | 离线登录 proof helper 有测试，但不签发真实会话 |
 | 公开推送、PR、部署、比赛提交 | NOT RUN | 用户限制；未执行 |
 
 最终运行的检查没有未解决失败项。初始 npm 缓存目录不可写，改用 `/tmp/npm-cache` 后安装成功；未申请越权。浏览器 CDN 失败不是浏览器测试通过的依据，测试实际使用系统 Chromium。
@@ -50,10 +51,23 @@
 
 ## 验收边界
 
-交付名只能写“L0 模拟 MVP”。本报告不是 L1/L2 实际付款成功证据，不是生产安全认证，不保证比赛资格。完整规格中的关系数据库约束、多节点异步 CAS、真实登录、钱包签名、RPC 网络/资产核验、精确输出交易条件和完整退款仍有明确缺口，详见 ARCHITECTURE.md、INTEGRATION.md 和 TASKS.md。
+交付名只能写“L0 模拟 MVP”。本报告不是 L1/L2 实际付款成功证据，不是生产安全认证，不保证比赛资格。PostgreSQL 路径现已完成关系约束、SQL revision CAS 和并发/恢复测试；生产多节点压力与灾备、真实登录、钱包签名、RPC 网络/资产核验、精确输出交易条件和完整退款仍有明确缺口，详见 ARCHITECTURE.md、INTEGRATION.md 和 TASKS.md。
 
 ## 交付复核追加
 
 对抗性独立审查发现并修复 1 原子单位少付误结清、畸形离线 receipt 抛异常；另加强未知执行引用 UNKNOWN、worker 异常隔离。新增 HTTP 权限/CSRF/条件下载矩阵、同键跨单据、事件复用回滚和 6 进程竞争回归。详见 [REVIEW.md](REVIEW.md)。
 
-最终范围仍是 L0 模拟原型，22 项服务端测试 + 2 项 E2E 均通过；不是完整生产 MVP。源码 ZIP 只含文本源码/配置/文档，截图不纳入 ZIP。
+最终范围仍是 L0 模拟原型，23 项通用服务端测试 + 2 项 SQLite E2E，以及 10 个 PostgreSQL 子场景（Node 计数 11）+ 2 项 PostgreSQL E2E 均通过；不是完整生产 MVP。源码 ZIP 只含文本源码/配置/文档，截图不纳入 ZIP。
+
+## 2026-10-25 PostgreSQL 与认证验证追加
+
+- 实测引擎 PostgreSQL 18.6，官方镜像 digest 固定；无云端账户，本地 loopback 临时容器。测试后已停止容器。
+- `npm run test:postgres` 10 个子场景（含父测试 Node 报 11/11），覆盖迁移重复执行、外键/唯一/部分索引/不可变触发器、六进程竞争、事务回滚、过期报价、旧审批、迟到状态 CAS、连接池重建恢复、事件复用、字段授权、错密钥/AAD 调包和元数据不一致。
+- `npm run test:e2e:postgres` 2/2 通过，独立 schema，实际 PostgreSQL。SQLite `npm run test:e2e` 单独 2/2 通过，不混记。
+- `bash scripts/postgres-local.sh start` → `npm run db:migrate` 两次 → stop 已实测，可重复迁移且清理容器。
+- `npm test` 增加域名/账户/nonce/用途/时效/签名验证回归，共 23/23 通过。内存测试密钥没有注册或用于钱包；没有真实会话或交易。
+- 独立审查发现并修复：PostgreSQL invoice 明文状态列与密文未比对、审计 AAD 未绑定单条 ID、纯登录验证对 loopback 未限制协议；有负例回归。
+- `npm run lint`、`npm run typecheck`、`npm run build` 通过；运行依赖审计 0 vulnerabilities。不是生产安全证明。
+- Library 支持流程有界重试一次，仍在工具发现 tools/list 阶段返回 network。未上传、无 library_file_id；本地 ZIP/报告保留，不能称已交付原生附件。
+
+架构和复现见 [POSTGRES.md](POSTGRES.md)，真实认证/钱包/L1 最小输入见 [AUTH_L1_INPUTS.md](AUTH_L1_INPUTS.md)。

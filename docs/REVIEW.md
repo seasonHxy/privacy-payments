@@ -42,11 +42,13 @@ npm run test:e2e
 仅复核新增权限和进程竞争：`node --import tsx --test tests/security.test.ts`。
 仅边界/证据/receipt 回归：`node --import tsx --test --test-name-pattern='review regression' tests/domain.test.ts`。
 
-最终预期：22 项服务端 tests 全部通过，2 项 Chromium E2E 全部通过。故障隔离测试会输出一条固定 `Verification deferred` 信息，这是预期的故障注入结果；不含账单内容。
+最新预期：23 项通用服务端 tests、2 项 SQLite Chromium E2E、10 个 PostgreSQL 子场景（Node 含父测试计数 11）和 2 项 PostgreSQL E2E 全部通过。故障隔离测试会输出一条固定 `Verification deferred` 信息，这是预期的故障注入结果；不含账单内容。
 
 ## 尚未完成
 
-- PostgreSQL 迁移：拆分实体表及 schema migrations，增加 workspace+key、invoice+version 和 settlement-event 唯一约束/活动尝试部分唯一索引，行锁和异步 revision CAS；需迁移/回滚/并发压测，当前没有完成。
+- PostgreSQL 后续生产工作：本轮已实现关系表、迁移、唯一索引、行锁和 revision CAS 并实测；生产在线升级、数据导入/降级、长期压力与灾备恢复仍未完成，详见 POSTGRES.md。
 - 真正身份认证、钱包挑战与签名、独立 worker、KMS/轮换/灾备、生产日志与安全审计未实现。
 - L1 真实资产及网络可信验证、真实付款、收款独立核对和退款未运行；L2 权限与可信闭环仍 BLOCKED。
 - Library 交付状态以主对话确认的 Library 返回结果为准；本地 ZIP 存在不等于已上传。
+
+2026-10-25 追加复核：PostgreSQL 确实使用 pg/关系表/事务，不使用 SQLite；发现的 invoice 元数据不一致、审计 AAD 记录绑定和纯登录 origin 协议边界均已修复并测试。最新验收以 ACCEPTANCE.md 的 PostgreSQL 追加记录为准，原 22 项/2 项计数为上一轮历史。

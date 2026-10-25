@@ -66,13 +66,13 @@ export const payloadSchema = z
   })
   .strict();
 export type Payload = z.infer<typeof payloadSchema>;
-type Version = {
+export type Version = {
   version: number;
   payload: Payload;
   fingerprint: string;
   createdAt: number;
 };
-type Invoice = {
+export type Invoice = {
   id: string;
   workspace: string;
   creator: User;
@@ -81,7 +81,7 @@ type Invoice = {
   settled: boolean;
   versions: Version[];
 };
-type Approval = {
+export type Approval = {
   id: string;
   invoiceId: string;
   version: number;
@@ -117,7 +117,7 @@ export type Quote = {
   refundPolicy: string;
   fingerprint: string;
 };
-type Evidence = {
+export type Evidence = {
   source: string;
   eventId: string;
   mode: string;
@@ -130,7 +130,7 @@ type Evidence = {
   success: boolean;
   receivedAcknowledged?: boolean;
 };
-type Attempt = {
+export type Attempt = {
   id: string;
   invoiceId: string;
   workspace: string;
@@ -145,7 +145,7 @@ type Attempt = {
   evidence?: Evidence;
   reason?: string;
 };
-type Grant = {
+export type Grant = {
   id: string;
   invoiceId: string;
   version: number;
@@ -154,14 +154,14 @@ type Grant = {
   expiresAt: number;
   revokedAt?: number;
 };
-type State = {
+export type State = {
   invoices: Invoice[];
   approvals: Approval[];
   attempts: Attempt[];
   grants: Grant[];
   audit: { by: User; object: string; type: string; at: number }[];
 };
-const fresh = (): State => ({
+export const fresh = (): State => ({
   invoices: [],
   approvals: [],
   attempts: [],
@@ -182,22 +182,33 @@ const canonical = (x: unknown): string =>
       : JSON.stringify(x);
 export const fingerprint = (x: unknown) =>
   createHash("sha256").update(canonical(x)).digest("hex");
-export function seal(value: unknown, key: Buffer): Buffer {
+export function seal(
+  value: unknown,
+  key: Buffer,
+  context = "privacy-payments:state:v1",
+): Buffer {
   const iv = randomBytes(12);
   const c = createCipheriv("aes-256-gcm", key, iv);
-  c.setAAD(Buffer.from("privacy-payments:state:v1"));
+  c.setAAD(Buffer.from(context));
   const body = Buffer.concat([c.update(JSON.stringify(value)), c.final()]);
   return Buffer.concat([iv, c.getAuthTag(), body]);
 }
-export function unseal(value: Buffer, key: Buffer): State {
+export function unseal<T = State>(
+  value: Buffer,
+  key: Buffer,
+  context = "privacy-payments:state:v1",
+): T {
   const c = createDecipheriv("aes-256-gcm", key, value.subarray(0, 12));
-  c.setAAD(Buffer.from("privacy-payments:state:v1"));
+  c.setAAD(Buffer.from(context));
   c.setAuthTag(value.subarray(12, 28));
   return JSON.parse(
     Buffer.concat([c.update(value.subarray(28)), c.final()]).toString(),
   );
 }
-export class Store {
+export interface StateStore {
+  tx<T>(fn: (s: State) => T): T;
+}
+export class Store implements StateStore {
   db: DatabaseSync;
   constructor(
     path: string,
@@ -237,7 +248,7 @@ export class Store {
 const inactive: Status[] = ["USER_REJECTED", "FAILED_NO_TRANSFER"];
 export class Service {
   constructor(
-    public store: Store,
+    public store: StateStore,
     public now = () => Date.now(),
   ) {}
   private payer(u: User) {
@@ -527,10 +538,12 @@ export class Service {
     return this.store.tx((s) => this.attempt(s, u, id).a);
   }
   // Read-only verifier of execution: never constructs, signs or broadcasts transactions.
-  verify(id: string) {
+  verify(id: string, expectedRevision?: number) {
     return this.store.tx((s) => {
       const a = s.attempts.find((x) => x.id === id);
       check(a, "NOT_FOUND", 404);
+      if (expectedRevision !== undefined)
+        check(a.revision === expectedRevision, "STALE_VERIFICATION");
       if (!["SUBMITTED", "VERIFYING", "UNKNOWN"].includes(a.state)) return a;
       const i = s.invoices.find((x) => x.id === a.invoiceId)!;
       const q = a.quote!;
@@ -754,3 +767,11 @@ export function verifyRefund(e: Evidence, q: Quote) {
     e.amountAtomic === q.inputAtomic
   );
 }
+
+export type ServiceAPI = {
+  [
+    K in keyof Service as Service[K] extends (...args: any[]) => any ? K : never
+  ]: Service[K] extends (...args: infer A) => infer R
+    ? (...args: A) => R | Promise<R>
+    : never;
+};

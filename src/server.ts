@@ -13,9 +13,13 @@ import {
   NOTICE,
   asset,
   type User,
+  type ServiceAPI,
 } from "./domain.js";
 
-export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
+export function createApp(
+  service: ServiceAPI,
+  origin = "http://127.0.0.1:3000",
+) {
   const app = express();
   app.disable("x-powered-by");
   const sessions = new Map<string, { user: User; expires: number }>();
@@ -37,7 +41,7 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
     }
     next();
   });
-  app.post("/api/demo/session", (req, res) => {
+  app.post("/api/demo/session", async (req, res) => {
     const { user } = z
       .object({
         user: z.enum([
@@ -76,7 +80,7 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
     res.locals.user = session.user;
     next();
   });
-  app.get("/api/me", (_req, res) =>
+  app.get("/api/me", async (_req, res) =>
     res.json({
       user: res.locals.user,
       ...members[res.locals.user as User],
@@ -86,29 +90,34 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
       levels: { L0: "SIMULATED", L1: "DISABLED", L2: "BLOCKED" },
     }),
   );
-  app.get("/api/invoices", (_req, res) =>
-    res.json(service.list(res.locals.user)),
+  app.get("/api/invoices", async (_req, res) =>
+    res.json(await service.list(res.locals.user)),
   );
-  app.post("/api/invoices", (req, res) =>
-    res.status(201).json(service.create(res.locals.user, req.body)),
+  app.post("/api/invoices", async (req, res) =>
+    res.status(201).json(await service.create(res.locals.user, req.body)),
   );
-  app.get("/api/invoices/:id", (req, res) =>
-    res.json(service.get(res.locals.user, req.params.id)),
+  app.get("/api/invoices/:id", async (req, res) =>
+    res.json(await service.get(res.locals.user, req.params.id)),
   );
-  app.patch("/api/invoices/:id", (req, res) => {
+  app.patch("/api/invoices/:id", async (req, res) => {
     const { expectedVersion, payload } = z
       .object({ expectedVersion: z.number().int(), payload: z.unknown() })
       .strict()
       .parse(req.body);
     res.json(
-      service.edit(res.locals.user, req.params.id, expectedVersion, payload),
+      await service.edit(
+        res.locals.user,
+        req.params.id,
+        expectedVersion,
+        payload,
+      ),
     );
   });
-  app.post("/api/invoices/:id/approvals", (req, res) => {
+  app.post("/api/invoices/:id/approvals", async (req, res) => {
     const b = z.object({ version: z.number().int() }).strict().parse(req.body);
-    res.json(service.approve(res.locals.user, req.params.id, b.version));
+    res.json(await service.approve(res.locals.user, req.params.id, b.version));
   });
-  app.post("/api/invoices/:id/payment-attempts", (req, res) => {
+  app.post("/api/invoices/:id/payment-attempts", async (req, res) => {
     const b = z
       .object({
         version: z.number().int(),
@@ -117,7 +126,7 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
       .strict()
       .parse(req.body);
     res.json(
-      service.start(
+      await service.start(
         res.locals.user,
         req.params.id,
         b.version,
@@ -126,11 +135,11 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
       ),
     );
   });
-  app.post("/api/invoices/:id/acknowledgement", (req, res) =>
-    res.json(service.acknowledge(res.locals.user, req.params.id)),
+  app.post("/api/invoices/:id/acknowledgement", async (req, res) =>
+    res.json(await service.acknowledge(res.locals.user, req.params.id)),
   );
-  app.get("/api/invoices/:id/attachment", (req, res) => {
-    const i = service.get(res.locals.user, req.params.id);
+  app.get("/api/invoices/:id/attachment", async (req, res) => {
+    const i = await service.get(res.locals.user, req.params.id);
     const version = z.coerce.number().int().positive().parse(req.query.version);
     const a = i.versions.find((v) => v.version === version)?.payload.attachment;
     check(a, "NOT_FOUND", 404);
@@ -140,19 +149,19 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
     });
     res.send(a.content);
   });
-  app.get("/api/payment-attempts/:id", (req, res) =>
-    res.json(service.status(res.locals.user, req.params.id)),
+  app.get("/api/payment-attempts/:id", async (req, res) =>
+    res.json(await service.status(res.locals.user, req.params.id)),
   );
-  app.post("/api/payment-attempts/:id/quote", (req, res) =>
-    res.json(service.quote(res.locals.user, req.params.id)),
+  app.post("/api/payment-attempts/:id/quote", async (req, res) =>
+    res.json(await service.quote(res.locals.user, req.params.id)),
   );
-  app.post("/api/payment-attempts/:id/confirm", (req, res) => {
+  app.post("/api/payment-attempts/:id/confirm", async (req, res) => {
     const b = z
       .object({ version: z.number().int(), quoteFingerprint: z.string() })
       .strict()
       .parse(req.body);
     res.json(
-      service.confirm(
+      await service.confirm(
         res.locals.user,
         req.params.id,
         b.version,
@@ -160,42 +169,49 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
       ),
     );
   });
-  app.post("/api/payment-attempts/:id/prepare-signing", (req, res) =>
-    res.json(service.prepare(res.locals.user, req.params.id)),
+  app.post("/api/payment-attempts/:id/prepare-signing", async (req, res) =>
+    res.json(await service.prepare(res.locals.user, req.params.id)),
   );
-  app.post("/api/payment-attempts/:id/reject", (req, res) =>
-    res.json(service.reject(res.locals.user, req.params.id)),
+  app.post("/api/payment-attempts/:id/reject", async (req, res) =>
+    res.json(await service.reject(res.locals.user, req.params.id)),
   );
-  app.post("/api/payment-attempts/:id/execution-reference", (req, res) => {
-    const b = z.object({ reference: z.string() }).strict().parse(req.body);
-    const a = service.submit(res.locals.user, req.params.id, b.reference);
-    res.status(202).json(a);
-    setImmediate(() => {
-      try {
-        service.verify(a.id);
-      } catch {
-        // Keep persisted SUBMITTED for explicit recovery. Never turn verifier errors into success.
-        process.stderr.write(
-          "Verification deferred: local evidence check failed.\n",
-        );
-      }
-    });
+  app.post(
+    "/api/payment-attempts/:id/execution-reference",
+    async (req, res) => {
+      const b = z.object({ reference: z.string() }).strict().parse(req.body);
+      const a = await service.submit(
+        res.locals.user,
+        req.params.id,
+        b.reference,
+      );
+      res.status(202).json(a);
+      setImmediate(async () => {
+        try {
+          await service.verify(a.id, a.revision);
+        } catch {
+          // Keep persisted SUBMITTED for explicit recovery. Never turn verifier errors into success.
+          process.stderr.write(
+            "Verification deferred: local evidence check failed.\n",
+          );
+        }
+      });
+    },
+  );
+  app.post("/api/payment-attempts/:id/recheck", async (req, res) => {
+    await service.status(res.locals.user, req.params.id);
+    res.json(await service.verify(req.params.id));
   });
-  app.post("/api/payment-attempts/:id/recheck", (req, res) => {
-    service.status(res.locals.user, req.params.id);
-    res.json(service.verify(req.params.id));
-  });
-  app.get("/api/disclosures", (_req, res) =>
-    res.json(service.grants(res.locals.user)),
+  app.get("/api/disclosures", async (_req, res) =>
+    res.json(await service.grants(res.locals.user)),
   );
-  app.post("/api/disclosures", (req, res) =>
-    res.status(201).json(service.grant(res.locals.user, req.body)),
+  app.post("/api/disclosures", async (req, res) =>
+    res.status(201).json(await service.grant(res.locals.user, req.body)),
   );
-  app.get("/api/disclosures/:id", (req, res) =>
-    res.json(service.disclosure(res.locals.user, req.params.id)),
+  app.get("/api/disclosures/:id", async (req, res) =>
+    res.json(await service.disclosure(res.locals.user, req.params.id)),
   );
-  app.get("/api/disclosures/:id/export", (req, res) => {
-    const d = service.disclosure(res.locals.user, req.params.id);
+  app.get("/api/disclosures/:id/export", async (req, res) => {
+    const d = await service.disclosure(res.locals.user, req.params.id);
     res
       .set(
         "Content-Disposition",
@@ -203,11 +219,11 @@ export function createApp(service: Service, origin = "http://127.0.0.1:3000") {
       )
       .json(d);
   });
-  app.delete("/api/disclosures/:id", (req, res) =>
-    res.json(service.revoke(res.locals.user, req.params.id)),
+  app.delete("/api/disclosures/:id", async (req, res) =>
+    res.json(await service.revoke(res.locals.user, req.params.id)),
   );
   app.use(express.static(resolve("public")));
-  app.use((_req, res) =>
+  app.use(async (_req, res) =>
     res.status(404).json({ error: "NOT_FOUND", notice: NOTICE }),
   );
   app.use(
@@ -241,18 +257,53 @@ if (
   const keyPath = resolve(directory, "storage.key");
   if (!existsSync(keyPath))
     writeFileSync(keyPath, randomBytes(32), { mode: 0o600, flag: "wx" });
-  const store = new Store(
-    resolve(directory, "app.sqlite"),
-    readFileSync(keyPath),
-  );
-  const service = new Service(store);
-  service.recover();
-  const port = Number(process.env.PORT ?? 3000);
-  createApp(service, `http://127.0.0.1:${port}`).listen(
-    port,
-    "127.0.0.1",
-    () => {
-      process.stdout.write(`L0 demo: http://127.0.0.1:${port} — ${NOTICE}\n`);
-    },
-  );
+  const driver = process.env.STORAGE_DRIVER ?? "sqlite";
+  check(["sqlite", "postgres"].includes(driver), "INVALID_STORAGE_DRIVER", 500);
+  let service: ServiceAPI;
+  let close: () => void | Promise<void>;
+  if (driver === "postgres") {
+    check(process.env.DATABASE_URL, "DATABASE_URL_REQUIRED", 500);
+    const url = new URL(process.env.DATABASE_URL);
+    check(
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname),
+      "LOCAL_DATABASE_REQUIRED",
+      500,
+    );
+    const { Pool } = await import("pg");
+    const { PostgresRepository } = await import("./postgres.js");
+    const repo = new PostgresRepository(
+      new Pool({ connectionString: process.env.DATABASE_URL }),
+      readFileSync(keyPath),
+    );
+    await repo.migrate();
+    service = repo.api();
+    close = () => repo.close();
+  } else {
+    const store = new Store(
+      resolve(directory, "app.sqlite"),
+      readFileSync(keyPath),
+    );
+    service = new Service(store);
+    close = () => store.close();
+  }
+  if (process.env.MIGRATE_ONLY === "1") {
+    await close();
+    process.stdout.write("Local L0 schema ready.\n");
+  } else {
+    await service.recover();
+    const port = Number(process.env.PORT ?? 3000);
+    const server = createApp(service, `http://127.0.0.1:${port}`).listen(
+      port,
+      "127.0.0.1",
+      () =>
+        process.stdout.write(
+          `L0 ${driver} demo: http://127.0.0.1:${port} — ${NOTICE}\n`,
+        ),
+    );
+    process.once("SIGTERM", () =>
+      server.close(() => {
+        void close();
+      }),
+    );
+  }
 }
