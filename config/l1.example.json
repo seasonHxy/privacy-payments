@@ -1,0 +1,12 @@
+{
+  "chainId": "testnet",
+  "genesisHash": "REPLACE_WITH_VERIFIED_TESTNET_GENESIS_HASH",
+  "rpcUrl": "https://rpc.example.invalid",
+  "contract": "REPLACE_WITH_VERIFIED_TESTUSD_CONTRACT",
+  "decimals": -1,
+  "symbol": "testUSD",
+  "metadataSource": "https://example.invalid/REPLACE_WITH_OFFICIAL_ASSET_EVIDENCE",
+  "payer": "REPLACE_WITH_EXISTING_PAYER_ACCOUNT",
+  "recipient": "REPLACE_WITH_EXISTING_RECIPIENT_ACCOUNT",
+  "gas": "30000000000000"
+}

@@ -56,3 +56,12 @@ npm run test:e2e
 ## NEP-413 追加审查
 
 独立审查确认编码与事务设计，发现并复现constructor账户原型命中，以及receipt额外action字段、非规范Base64、悬空返回引用。现使用自有属性与角色枚举、strict action/schema、Base64重编码一致性及图引用检查，负例回归通过。补充并发rotate和RPC等待期间logout回归，检查实际赢家数量和访问被拒绝。未做真实账户/钱包验证；所有网络响应为mock。最终结果见ACCEPTANCE.md最新表。
+
+## 本轮钱包客户端与 L1 独立审查
+
+独立审查发现两项并修复：
+
+1. 导出的 ft_transfer 在报价过期后仍可能被外部执行。现在绑定直接到账 receipt 的 block_hash 查询可信 RPC，使用精确 timestamp_nanosec 检查 confirmedAt <= execution < expiresAt。缺少时间或超时执行保持 REVIEW_REQUIRED，不能重新付款。
+2. SDK 父窗口 postMessage 注册可能伪装 manifest.type=injected。现在要求实际 InjectedWallet 类实例，并固定已检查对象调用，拒绝父窗口传输替换；浏览器有伪造消息反例。
+
+新增审查覆盖 L0/L1 接口和数据库隔离、精确账户/角色、同源 JSON、配置缺失、未知 RPC 结果、随机 memo 与完整 args、事件唯一与迟到 CAS。没有添加访问密钥或广播交易。所有签名和 RPC 都是测试 fixture；独立审查不是生产安全认证。

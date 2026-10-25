@@ -1,3 +1,4 @@
+import { WalletLogin } from "/wallet-client.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) =>
   String(s ?? "").replace(
@@ -7,6 +8,7 @@ const esc = (s) =>
         c
       ],
   );
+let walletLogin;
 let user = "payer",
   invoices = [],
   selected = sessionStorage.getItem("invoice") || "",
@@ -251,17 +253,54 @@ $("#identity").onchange = () =>
 window.onhashchange = () => render().catch((e) => message(e.message));
 (async () => {
   const authConfig = await api("/auth/config");
-  if (authConfig.mode === "NEP413")
+  if (authConfig.paymentMode === "L1") {
+    $(".mode").textContent =
+      "L1 公开测试网 · 仅准备待签请求，未执行交易 · L2 BLOCKED";
+    $("aside .muted").textContent = "TESTNET WORKSPACE";
+    $("footer").textContent =
+      "testUSD 无美元价值 · 测试网账户和金额公开 · 不收集私钥或助记词";
+  }
+  if (authConfig.mode === "NEP413") {
     $("#identity").closest("label").hidden = true;
+    walletLogin = new WalletLogin(authConfig.wallet, api);
+    $("#logout").hidden = false;
+    $("#logout").onclick = async () => {
+      try {
+        await walletLogin.logout();
+        location.reload();
+      } catch (e) {
+        message(e.message);
+      }
+    };
+  }
   try {
     const me = await api("/me");
+    if (authConfig.paymentMode === "L1") {
+      location.replace("/l1.html");
+      return;
+    }
     user = me.user;
     $("#identity").value = user;
   } catch {
     if (authConfig.mode === "NEP413") {
       $("#title").textContent = "账户登录";
       $("#content").innerHTML =
-        '<section class="card"><h2>需要钱包登录</h2><p class="small">当前启用 NEAR 登录校验，演示身份切换已关闭。钱包连接界面尚未接入；付款功能仍仅为模拟。</p></section>';
+        `<section class="card"><h2>需要钱包登录</h2><p class="small">NEP-413 登录只验证账户控制权，不授权付款或添加访问密钥。</p>${authConfig.wallet?.enabled ? `<form id="walletLogin"><label>已配置的测试网账户<input name="accountId" required maxlength="64" autocomplete="off"></label><p class="small">钱包：${esc(authConfig.wallet.walletId)} · testnet · 浏览器扩展连接</p><button>连接钱包并签署登录消息</button></form>` : "<p>待配置：请确认钱包、公开测试网账户及登录域名。真实登录配置缺失，不会切换为演示身份。</p>"}</section>`;
+      if ($("#walletLogin"))
+        $("#walletLogin").onsubmit = async (event) => {
+          event.preventDefault();
+          const button = event.target.querySelector("button");
+          button.disabled = true;
+          message("请在钱包核对登录消息；这不是付款请求。");
+          try {
+            const accountId = new FormData(event.target).get("accountId");
+            await walletLogin.login(accountId);
+            location.reload();
+          } catch (e) {
+            message(e.message);
+            button.disabled = false;
+          }
+        };
       return;
     }
     await api("/demo/session", "POST", { user });

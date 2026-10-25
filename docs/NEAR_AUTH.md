@@ -67,3 +67,7 @@ bash scripts/postgres-local.sh stop
 ```
 
 测试只用临时 PostgreSQL schema 和内存 Ed25519 fixture，没有真实账户操作。28 项通用测试、PostgreSQL 18 个子场景（含两个父测试计数20），SQLite/PG 各3个浏览器用例通过。浏览器第三个用例 mock 认证配置，确认缺失会话时不回退 demo；真实 NEP-413 会话由 PostgreSQL+HTTP mock 测试覆盖，并非真实钱包浏览器测试。
+
+## 本轮客户端补充
+
+现已有官方 NEAR Connect SDK 的受限注入式钱包客户端，walletId 可选配置，无配置则显示待配置。仅实例类型经过检查的 InjectedWallet，空远端 manifest、无持久钱包选择、不添加访问密钥、不调用交易发送。真实浏览器到 PostgreSQL 会话测试已通过，钱包/RPC 仍 mock，见 WALLET.md。L1 可在独立配置下生成请求与只读核验，默认关闭；不能把此能力称真实付款已验收。

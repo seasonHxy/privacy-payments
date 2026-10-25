@@ -1,0 +1,139 @@
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #1b3833;
+  background: #f3f5f0;
+  font-size: 15px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  background: #173e34;
+  color: #f5f4df;
+  padding: 18px max(20px, calc((100vw - 980px) / 2));
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+header a {
+  color: inherit;
+}
+header span,
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+main {
+  max-width: 980px;
+  margin: 42px auto;
+  padding: 0 20px;
+}
+h1 {
+  font-size: 34px;
+  font-weight: 550;
+  margin: 12px 0 24px;
+}
+h2 {
+  font-size: 20px;
+}
+p {
+  line-height: 1.8;
+}
+a {
+  color: #225c42;
+}
+.card {
+  background: white;
+  border: 1px solid #dde5d9;
+  border-radius: 12px;
+  padding: 26px;
+  margin: 24px 0;
+}
+.warning,
+#message:not(:empty) {
+  background: #fff3d5;
+  border: 1px solid #e5d6b3;
+  padding: 16px;
+  border-radius: 8px;
+  line-height: 1.8;
+}
+label {
+  display: block;
+  font-size: 13px;
+  margin: 18px 0;
+}
+input,
+select {
+  width: 100%;
+  display: block;
+  margin: 8px 0;
+  border: 1px solid #cbd7c7;
+  border-radius: 6px;
+  padding: 12px;
+  font: inherit;
+  color: inherit;
+  background: white;
+}
+button {
+  border: 0;
+  border-radius: 6px;
+  background: #225c42;
+  color: white;
+  padding: 12px 18px;
+  margin: 6px 10px 6px 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+button.secondary {
+  background: #e6eddf;
+  color: #2d5138;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f3f6f0;
+  padding: 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.small,
+footer {
+  font-size: 12px;
+  color: #617365;
+  line-height: 1.8;
+}
+[hidden] {
+  display: none !important;
+}
+:focus-visible {
+  outline: 3px solid #d2a348;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  header {
+    font-size: 12px;
+    padding: 16px;
+  }
+  header span {
+    font-size: 9px;
+  }
+  main {
+    margin: 24px auto;
+    padding: 0 16px;
+  }
+  .card {
+    padding: 18px;
+  }
+  h1 {
+    font-size: 28px;
+  }
+}

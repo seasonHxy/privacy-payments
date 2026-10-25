@@ -75,6 +75,7 @@ export class PostgresRepository {
       for (const [version, file] of [
         [1, "001_relational.sql"],
         [2, "002_auth.sql"],
+        [3, "003_l1.sql"],
       ] as const) {
         const sql = await readFile(
           new URL("../migrations/" + file, import.meta.url),

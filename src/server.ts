@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { NearAuth, authConfigSchema } from "./near-auth.js";
 import { NearReadOnlyRpc } from "./near-rpc.js";
+import { L1Service, l1ConfigSchema, type L1Actor } from "./l1.js";
 import {
   Service,
   Store,
@@ -22,8 +23,21 @@ export function createApp(
   service: ServiceAPI,
   origin = "http://127.0.0.1:3000",
   auth?: NearAuth,
+  options: { l1?: L1Service } = {},
 ) {
   check(!auth || auth.config.origin === origin, "AUTH_ORIGIN_MISMATCH", 500);
+  const l1 = options.l1;
+  if (l1)
+    check(
+      auth &&
+        auth.config.chainId === l1.config.chainId &&
+        auth.config.genesisHash === l1.config.genesisHash &&
+        auth.config.rpcUrl === l1.config.rpcUrl &&
+        auth.config.members[l1.config.payer] === "payer" &&
+        auth.config.members[l1.config.recipient] === "recipient",
+      "L1_AUTH_CONFIGURATION_MISMATCH",
+      500,
+    );
   const app = express();
   app.disable("x-powered-by");
   const sessions = new Map<string, { user: User; expires: number }>();
@@ -62,7 +76,24 @@ export function createApp(
       `${name}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${origin.startsWith("https:") ? "; Secure" : ""}`,
     );
   app.get("/api/auth/config", (_req, res) =>
-    res.json({ mode: auth ? "NEP413" : "DEMO", paymentMode: "L0" }),
+    res.json({
+      mode: auth ? "NEP413" : "DEMO",
+      paymentMode: l1 ? "L1" : "L0",
+      wallet: {
+        enabled: Boolean(auth?.config.walletId),
+        walletId: auth?.config.walletId ?? null,
+        network: "testnet",
+        transport: "injected",
+      },
+    }),
+  );
+  app.get("/api/l1/config", (_req, res) =>
+    res.json({
+      enabled: Boolean(l1),
+      network: "testnet",
+      reason: l1 ? null : "L1_CONFIGURATION_REQUIRED",
+      notice: "公开测试网 testUSD，无美元价值；待签请求不会自动执行。",
+    }),
   );
   app.post("/api/auth/challenge", async (req, res) => {
     check(auth, "REAL_AUTH_DISABLED", 503);
@@ -83,7 +114,7 @@ export function createApp(
     res.json({
       user: session.user,
       authentication: "NEP413",
-      paymentMode: "L0",
+      paymentMode: l1 ? "L1" : "L0",
     });
   });
   app.post("/api/auth/rotate", async (req, res) => {
@@ -133,7 +164,9 @@ export function createApp(
   });
   app.use("/api", async (req, res, next) => {
     if (auth) {
-      res.locals.user = (await auth.resolve(cookie(req, "near_session"))).user;
+      const identity = await auth.resolve(cookie(req, "near_session"));
+      res.locals.user = identity.user;
+      res.locals.identity = identity;
       next();
       return;
     }
@@ -147,14 +180,108 @@ export function createApp(
     res.locals.user = session.user;
     next();
   });
+  // L1 objects never pass through the L0 simulator, even with a valid NEAR session.
+  app.use("/api/l1", (_req, res, next) => {
+    check(l1 && auth && res.locals.identity, "L1_DISABLED", 503);
+    next();
+  });
+  const actor = (res: express.Response) => res.locals.identity as L1Actor;
+  app.get("/api/l1/settings", (_req, res) => {
+    const a = actor(res);
+    check(
+      l1 &&
+        ((a.user === "payer" && a.accountId === l1.config.payer) ||
+          (a.user === "recipient" && a.accountId === l1.config.recipient)),
+      "L1_OBJECT_FORBIDDEN",
+      403,
+    );
+    res.json({
+      enabled: true,
+      network: "testnet",
+      asset: {
+        symbol: "testUSD",
+        contract: l1.config.contract,
+        decimals: l1.config.decimals,
+      },
+      payer: l1.config.payer,
+      recipient: l1.config.recipient,
+    });
+  });
+  app.get("/api/l1/invoices", async (_req, res) =>
+    res.json(await l1!.list(actor(res))),
+  );
+  app.post("/api/l1/invoices", async (req, res) =>
+    res
+      .status(201)
+      .json(
+        await l1!.create(
+          actor(res),
+          req.body,
+          req.get("Idempotency-Key") ?? "",
+        ),
+      ),
+  );
+  app.get("/api/l1/invoices/:id", async (req, res) =>
+    res.json(await l1!.get(actor(res), req.params.id)),
+  );
+  app.post("/api/l1/invoices/:id/approve", async (req, res) => {
+    const b = z.object({ version: z.number().int() }).strict().parse(req.body);
+    res.json(await l1!.approve(actor(res), req.params.id, b.version));
+  });
+  app.post("/api/l1/invoices/:id/quote", async (req, res) =>
+    res.json(await l1!.quote(actor(res), req.params.id)),
+  );
+  app.post("/api/l1/invoices/:id/confirm", async (req, res) => {
+    const b = z
+      .object({ version: z.number().int(), quoteFingerprint: z.string() })
+      .strict()
+      .parse(req.body);
+    res.json(
+      await l1!.confirm(
+        actor(res),
+        req.params.id,
+        b.version,
+        b.quoteFingerprint,
+      ),
+    );
+  });
+  app.post("/api/l1/invoices/:id/prepare-signing", async (req, res) =>
+    res.json(await l1!.prepare(actor(res), req.params.id)),
+  );
+  app.post("/api/l1/invoices/:id/execution-reference", async (req, res) => {
+    const b = z.object({ reference: z.string() }).strict().parse(req.body);
+    res
+      .status(202)
+      .json(await l1!.submit(actor(res), req.params.id, b.reference));
+  });
+  app.post("/api/l1/invoices/:id/recheck", async (req, res) =>
+    res.json(await l1!.recheck(actor(res), req.params.id)),
+  );
+  app.post("/api/l1/invoices/:id/acknowledgement", async (req, res) =>
+    res.json(await l1!.acknowledge(actor(res), req.params.id)),
+  );
+  app.use("/api", (req, _res, next) => {
+    check(!l1 || req.path === "/me", "L0_DISABLED_IN_L1_MODE", 403);
+    next();
+  });
   app.get("/api/me", async (_req, res) =>
     res.json({
       user: res.locals.user,
       ...members[res.locals.user as User],
-      asset,
-      mode: "L0",
-      notice: NOTICE,
-      levels: { L0: "SIMULATED", L1: "DISABLED", L2: "BLOCKED" },
+      asset: l1
+        ? {
+            symbol: "testUSD",
+            decimals: l1.config.decimals,
+            contract: l1.config.contract,
+          }
+        : asset,
+      mode: l1 ? "L1" : "L0",
+      notice: l1 ? "公开测试网 testUSD，无美元价值；不会自动付款。" : NOTICE,
+      levels: {
+        L0: l1 ? "ISOLATED_DISABLED" : "SIMULATED",
+        L1: l1 ? "CONFIGURED_NOT_CHAIN_ACCEPTED" : "DISABLED",
+        L2: "BLOCKED",
+      },
       authentication: auth ? "NEP413" : "DEMO",
     }),
   );
@@ -292,7 +419,12 @@ export function createApp(
   );
   app.use(express.static(resolve("public")));
   app.use(async (_req, res) =>
-    res.status(404).json({ error: "NOT_FOUND", notice: NOTICE }),
+    res
+      .status(404)
+      .json({
+        error: "NOT_FOUND",
+        notice: l1 ? "公开测试网待签模式，无自动付款。" : NOTICE,
+      }),
   );
   app.use(
     (
@@ -302,11 +434,14 @@ export function createApp(
       _next: express.NextFunction,
     ) => {
       void _next;
+      const notice = l1
+        ? "公开测试网 testUSD，无美元价值；付款不会自动执行。"
+        : NOTICE;
       if (error instanceof Fault)
-        res.status(error.status).json({ error: error.code, notice: NOTICE });
+        res.status(error.status).json({ error: error.code, notice });
       else if (error instanceof z.ZodError)
-        res.status(400).json({ error: "INVALID_INPUT", notice: NOTICE });
-      else res.status(500).json({ error: "INTERNAL_ERROR", notice: NOTICE });
+        res.status(400).json({ error: "INVALID_INPUT", notice });
+      else res.status(500).json({ error: "INTERNAL_ERROR", notice });
     },
   );
   return app;
@@ -316,7 +451,12 @@ if (
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   check(
-    !process.env.PAYMENT_MODE || process.env.PAYMENT_MODE === "L0",
+    !process.env.PAYMENT_MODE ||
+      process.env.PAYMENT_MODE === "L0" ||
+      (process.env.PAYMENT_MODE === "L1" &&
+        process.env.AUTH_MODE === "near" &&
+        process.env.STORAGE_DRIVER === "postgres" &&
+        process.env.L1_CONFIG),
     "REAL_MODES_DISABLED",
     500,
   );
@@ -330,6 +470,7 @@ if (
   const authMode = process.env.AUTH_MODE ?? "demo";
   check(["demo", "near"].includes(authMode), "INVALID_AUTH_MODE", 500);
   let auth: NearAuth | undefined;
+  let l1: L1Service | undefined;
   let origin =
     process.env.APP_ORIGIN ??
     `http://127.0.0.1:${Number(process.env.PORT ?? 3000)}`;
@@ -379,6 +520,21 @@ if (
           genesisHash: config.genesisHash,
         }),
       );
+      if (process.env.PAYMENT_MODE === "L1") {
+        const paymentConfig = l1ConfigSchema.parse(
+          JSON.parse(readFileSync(resolve(process.env.L1_CONFIG!), "utf8")),
+        );
+        l1 = new L1Service(
+          repo.pool,
+          readFileSync(keyPath),
+          paymentConfig,
+          new NearReadOnlyRpc({
+            url: paymentConfig.rpcUrl,
+            chainId: paymentConfig.chainId,
+            genesisHash: paymentConfig.genesisHash,
+          }),
+        );
+      }
     }
     close = () => repo.close();
   } else {
@@ -395,12 +551,12 @@ if (
   } else {
     await service.recover();
     const port = Number(process.env.PORT ?? 3000);
-    const server = createApp(service, origin, auth).listen(
+    const server = createApp(service, origin, auth, { l1 }).listen(
       port,
       "127.0.0.1",
       () =>
         process.stdout.write(
-          `L0 ${driver} demo: http://127.0.0.1:${port} — ${NOTICE}\n`,
+          `${l1 ? "L1 request-only" : "L0 demo"} ${driver}: http://127.0.0.1:${port} — ${l1 ? "公开测试网待签模式，无自动付款。" : NOTICE}\n`,
         ),
     );
     process.once("SIGTERM", () =>

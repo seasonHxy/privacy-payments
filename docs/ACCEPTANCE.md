@@ -90,3 +90,35 @@
 一轮新增浏览器检查曾发现CSS的label display规则覆盖hidden属性，导致NEP413模式仍显示演示选择器（服务端仍拒绝demo）。已统一hidden样式并通过3/3重跑，没有保留失败项。
 
 认证默认关闭，示例配置含不可用占位符；当前无钱包客户端接入，也未部署身份提供商。详见 NEAR_AUTH.md 与更新后的 AUTH_L1_INPUTS.md。前文23/11/2等计数为上一轮历史，当前以本表为准。
+
+## 2026-10-25 钱包客户端、L1 待签与 CI 最终验收（覆盖前文计数）
+
+最终执行：`TEST_DATABASE_URL=postgresql://postgres:local-fake-data-only@127.0.0.1:55432/privacy_payments bash scripts/ci.sh`，退出码 0。日志保留在执行环境 `/tmp/privacy-payments-final-checks.log`，不作为源码打包。
+
+| 项目 | 结果 | 实际证据与限制 |
+| --- | --- | --- |
+| lint / typecheck / build | PASS | 包括官方 SDK 同源构建；锁定 npm 依赖 |
+| 通用服务端测试 | PASS 28/28 | 原 L0 安全/权限/状态机及 NEP-413/RPC 反例 |
+| PostgreSQL 集成 | PASS 35/35（含父测试计数） | 本地 PostgreSQL 18.6；认证8、原持久化10、L1服务11子场景，另有L1 HTTP和实际浏览器L0/L1两项完整测试 |
+| SQLite 启动的浏览器套件 | PASS 10/10 | 原L0流程3、L1 transport fixture3、官方SDK钱包fixture4；不把route mock当SQLite支持L1 |
+| PostgreSQL 启动的浏览器套件 | PASS 10/10 | 原L0实际PG流程，其余独立mock界面测试；真实L1服务端浏览器在上方PG集成单独覆盖 |
+| 运行依赖审计 | PASS | npm audit --omit=dev：0 vulnerabilities；不代表完整供应链审计 |
+| 独立安全审查 | PASS（已修复发现项） | 过期请求必须核验实际区块时间；SDK父窗口伪造传输被类实例检查阻断；均有负例 |
+| GitHub Actions | NOT RUN | 已准备最小权限、固定官方Actions SHA的workflow，按要求只本地提交，未推送 |
+| 真实钱包、账户或RPC | NOT RUN | 测试签名为内存fixture；未连接或绑定真实账户 |
+| 真实L1付款 | NOT RUN / 配置待核实 | 无经验证testUSD合约、精度、公开账户或实际交易授权；默认关闭 |
+| L2保密结算 | BLOCKED | 无Intents测试网，历史invite-only和partner能力/完整到账退款证据缺失 |
+| 部署、生产恢复、Library | NOT RUN | 未部署/开户/执行交易；只准备备份恢复说明；没有重试Library上传，无library_file_id |
+
+### 新测试的实际断言
+
+- `tests/postgres/wallet-browser.test.ts`：真实 Chromium 加载同源官方 SDK，用受控 injected 钱包签署真实服务端挑战；实际 Express 验签、PostgreSQL nonce消费、会话持久化、刷新和退出。L1场景实际经过UI创建→审批→前置检查→确认→待签→人工填fixture hash→RPC fixture核验→刷新；L0 API403，退出后会话401。只mock钱包和链RPC，不mock应用HTTP。
+- `tests/postgres/l1-http.test.ts`：真实认证会话、CSRF、viewer/recipient越权写拒绝、公开config不泄漏账户、同键异参409、模拟reference和客户端success字段拒绝、收款确认、no-store及L0隔离。
+- `tests/postgres/l1.test.ts`：六并发幂等、重复prepare保持同一请求、重复submit保持相同引用、storage/metadata/余额失败、跨RPC过期、UNKNOWN恢复、随机memo防旧交易、事件复用拒绝、迟到区块时间、并发核验CAS以及SQL故障回滚。
+- `tests/browser/wallet.spec.ts`：官方SDK的成功、拒签、错账户、伪造父窗口消息；断言不请求addFunctionCallKey，不调用交易发送，无持久localStorage。
+
+初始开发检查曾因新增区块时间fixture时钟不同步和浏览器序列化测试函数失败，已修复测试夹具并完整重跑；最终没有失败或跳过项。独立审查发现的两项真实实现问题也已修复，不能把早期失败计为未处理。
+
+已人工查看 `/tmp/privacy-payments-l1.png` 的实际浏览器fixture页面，准确显示testUSD无美元价值、配置、审批、待签请求及证据；截图仅假数据，不纳入文本源码包。
+
+交付仍称 **L0可运行原型 + L1配置式待签/核验代码（fixture验收）**。L1目前不可编辑v1、不支持会计逐单披露、自动storage注册或退款，gas limit不是网络费用价格上限；不是完整生产MVP，不是实际L1或L2付款验收。最终测试适用本轮本地提交的代码；随后仅更新验收文本和打包。

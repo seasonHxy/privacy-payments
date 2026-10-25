@@ -7,7 +7,7 @@
 | 等级 | 当前状态 |
 | --- | --- |
 | L0 | 已实现和自动化验证；所有金额、地址、执行结果均为模拟 |
-| L1 | 禁用。已有固定网络只读 receipt 适配器，但只通过合成 fixture/mock 测试；没有真实 testUSD 付款 |
+| L1 | 默认禁用。已实现隔离的 PostgreSQL 待签/核验流程与 UI；只有 fixture/mock 验证，没有真实 testUSD 付款 |
 | L2 | BLOCKED。没有完整权限、可信到账/退款证据或获准交易测试条件 |
 
 ## 执行 X，看到 Y
@@ -46,13 +46,13 @@ npm run test:e2e
 
 - Express 5 + TypeScript，前端为无框架 HTML/CSS/JS。默认 Node 24 SQLite 演示；新增可选 PostgreSQL 关系存储、迁移、唯一约束、行锁和 revision CAS，已在本地 PostgreSQL 18.6 单独实测，见 [PostgreSQL 指南](docs/POSTGRES.md)。
 - 首次启动创建 `data/storage.key`（随机 AES 存储密钥，**不是钱包密钥**）及加密 SQLite 数据库。`data/` 已忽略，不提交。备份/恢复必须同时保留密钥及数据库；没有密钥无法解密。
-- 可以通过 `DATA_DIR`、`PORT` 更改目录和端口。`PAYMENT_MODE` 只接受 L0，设置 L1/L2 会在启动时失败。PostgreSQL 使用 `STORAGE_DRIVER=postgres` 和本地 `DATABASE_URL`；不会自动迁移旧 SQLite 数据。
+- 可以通过 `DATA_DIR`、`PORT` 更改目录和端口。`PAYMENT_MODE` 默认为 L0；L1 必须同时配置 PostgreSQL、真实 NEP-413 认证和经核实的 `L1_CONFIG`，否则启动失败。L2 始终禁用。PostgreSQL 使用 `STORAGE_DRIVER=postgres` 和本地 `DATABASE_URL`；不会自动迁移旧 SQLite 数据。
 - 固定允许资产 `mock:USD`，6 位小数，模拟网络 `mock-local`；不是 USDC，也不是 testUSD。金额 API 只接收正十进制整数字符串，BigInt 运算。
-- 默认模拟登录可切换预置身份，**没有真正身份认证保证**。另有默认关闭的 NEP-413 服务端认证路径（见 docs/NEAR_AUTH.md），只经 fixture/mock 与 PostgreSQL 验证，未连接真实钱包。不得用它接入 L1/L2。会话为 HttpOnly、SameSite=Strict、有期限的服务端令牌；重启后需重新选择演示身份，付款状态仍持久保存。
+- 默认模拟登录可切换预置身份，**没有真正身份认证保证**。另有默认关闭的 NEP-413 服务端认证路径（见 docs/NEAR_AUTH.md），已接入官方 SDK 的受限注入式钱包登录客户端，只经 fixture/mock 与 PostgreSQL 验证，未连接真实钱包。L1 使用独立配置和对象存储，不能复用演示身份；L2 禁用。会话为 HttpOnly、SameSite=Strict、有期限的服务端令牌；重启后需重新选择演示身份，付款状态仍持久保存。
 - 存储加密和对象访问控制，不是端到端加密或服务商不可见。服务端持有解密能力。主机同时持有密钥和数据库，不抵御完整主机入侵。
-- 只允许纯文本附件；不支持 PDF、图片、OCR、多租户管理 UI、生产登录、钱包连接、真实签名或真实退款。管理员无付款权，成员管理尚未实现。
+- 只允许纯文本附件；不支持 PDF、图片、OCR、多租户管理 UI、生产认证运维、web-wallet callback、真实交易执行或真实退款。管理员无付款权，成员管理尚未实现。
 - worker 在提交后及进程启动时核验模拟证据；没有独立队列或真实链轮询。UNKNOWN 支持显式重新核验，不能当失败重付。
-- 没有外部 push、PR、部署、账户注册、持久授权或真实/测试网资金操作。
+- 用户批准的上一版本 `0904203` 已发布到 GitHub main。本轮钱包/L1/CI 新代码只在本地提交，未推送工作流；没有部署、账户注册、持久授权或真实/测试网资金操作。
 
 ## 交付物
 
@@ -67,6 +67,17 @@ npm run test:e2e
 - [NEP-413 协议、会话与只读 RPC](docs/NEAR_AUTH.md)
 - [桌面截图](docs/evidence/payment-desktop.png) / [移动截图](docs/evidence/disclosure-mobile.png)
 
-本轮开发于 2026-10-24 UTC 在空云端仓库开始（香港时间 2026-10-25）。这是赛前工作记录，不保证比赛资格；规则与最终提交由用户另行核实。仓库初始无 README、AGENTS.md 或已有代码；工作分支是环境预设的 `work`，未改动远程 main。
+本轮开发于 2026-10-24 UTC 在空云端仓库开始（香港时间 2026-10-25）。这是赛前工作记录，不保证比赛资格；规则与最终提交由用户另行核实。仓库初始无 README、AGENTS.md 或已有代码；工作分支是环境预设的 `work`；上轮经用户批准发布过 main，本轮没有推送。
 
 下载源码 ZIP 只包含源码、依赖锁文件、示例配置和文字文档，不包含截图、依赖目录、Git 历史、运行数据或密钥。`.env.example` 仅列出安全示例值，服务不会自动读取该文件。
+
+## 本轮钱包与 L1 代码
+
+访问 `/l1.html`，默认看到“待配置 / 已禁用”。配置缺失不会填入猜测的 testUSD 合约。经核实配置后的 L1 流程为创建不可变 v1 → 审批 → storage/metadata/余额检查 → 报价确认 → 展示准确待签请求 → 手动记录用户执行后的 hash → 只读核验 → 收款确认。本应用不调用钱包转账或广播接口。
+
+- [钱包登录实现与限制](docs/WALLET.md)：官方 NEAR Connect SDK，自托管 bundle，仅配置中的注入式钱包，不添加访问密钥。
+- [L1 接口、费用与证据边界](docs/L1.md)：公开 testUSD 无美元价值；不提供 L1 编辑、逐单披露、自动注册或退款，不能称完整生产 MVP。
+- [L2 官方文档复核](docs/L2_RECHECK.md)：无测试网、历史邀请制及 partner 权限缺口仍阻塞。
+- [本地 CI 与运维准备](docs/OPERATIONS.md)：启动本地 PostgreSQL 并设置 TEST_DATABASE_URL 后执行 `bash scripts/ci.sh`。GitHub Actions 配置仅本地准备，未推送或运行。
+
+配置示例 `config/l1.example.json` 故意无效（未知精度为 -1，合约与 genesis 为占位符），必须由公开证据核实后填写本地忽略的 `*.local.json`。没有要求提供钱包私钥或助记词。

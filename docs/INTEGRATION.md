@@ -39,3 +39,7 @@ L2：逐项确认允许资产、精确输出条件、所有费用、报价有效
 比赛规则页面浏览工具此次因 text/markdown 内容类型未读取成功；未据此做资格结论。赛前开发如实记录，最终规则、资格及提交信息另行确认。
 
 2026-10-25 认证追加：核实NEP-413、view_access_key、status和tx_status官方文档，实现默认禁用的服务端登录基础及保守只读receipt图验证。仅fixture/mock测试，无真实RPC/钱包/账户绑定或L1执行；见 NEAR_AUTH.md。
+
+## 2026-10-25 钱包/L1/L2 本轮更新
+
+本轮已有官方 SDK 注入式钱包客户端和独立 L1 PostgreSQL 待签/核验服务，storage/metadata/余额检查、唯一随机 memo、准确请求、receipt 区块执行时间检查均已实现；只在 mock/fixture 环境验收，未核实具体发行合约或执行链上交易。前文“未实现”代表历史阶段，当前范围见 L1.md 与 WALLET.md。L2 只读复核见 L2_RECHECK.md，仍 BLOCKED。

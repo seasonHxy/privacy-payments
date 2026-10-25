@@ -21,6 +21,11 @@ export const authConfigSchema = z
     rpcUrl: z.string().url(),
     chainId: z.literal("testnet"),
     genesisHash: nearHash,
+    walletId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]+$/)
+      .max(100)
+      .optional(),
     members: z
       .record(
         nearAccount,

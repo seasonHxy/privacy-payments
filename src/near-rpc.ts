@@ -41,7 +41,7 @@ export class NearReadOnlyRpc {
     this.pin = Object.freeze({ ...pin });
   }
   private async call(
-    method: "status" | "query" | "tx_status",
+    method: "status" | "query" | "tx_status" | "block",
     params: unknown,
   ): Promise<unknown> {
     const id = randomUUID();
@@ -119,6 +119,47 @@ export class NearReadOnlyRpc {
       );
     check(r.permission === "FullAccess", "FULL_ACCESS_KEY_REQUIRED", 403);
     return { blockHash: r.block_hash, blockHeight: r.block_height };
+  }
+  async viewFunction(
+    contract: string,
+    method: "ft_metadata" | "storage_balance_of" | "ft_balance_of",
+    args: Record<string, string>,
+  ) {
+    nearAccount.parse(contract);
+    await this.assertNetwork();
+    const r = z
+      .object({
+        result: z.array(z.number().int().min(0).max(255)),
+        block_hash: nearHash,
+        block_height: z.number().int().nonnegative(),
+      })
+      .parse(
+        await this.call("query", {
+          request_type: "call_function",
+          finality: "final",
+          account_id: contract,
+          method_name: method,
+          args_base64: Buffer.from(JSON.stringify(args)).toString("base64"),
+        }),
+      );
+    return {
+      value: JSON.parse(Buffer.from(r.result).toString("utf8")) as unknown,
+      blockHash: r.block_hash,
+    };
+  }
+  async blockTimestamp(hash: string) {
+    nearHash.parse(hash);
+    await this.assertNetwork();
+    const r = z
+      .object({
+        header: z.object({
+          hash: nearHash,
+          timestamp_nanosec: z.string().regex(/^[0-9]{1,20}$/),
+        }),
+      })
+      .parse(await this.call("block", { block_id: hash }));
+    check(r.header.hash === hash, "BLOCK_HASH_MISMATCH", 503);
+    return r.header;
   }
   async receipt(hash: string, payer: string) {
     nearHash.parse(hash);

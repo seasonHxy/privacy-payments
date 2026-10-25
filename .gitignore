@@ -6,3 +6,5 @@ playwright-report/
 test-results/
 
 config/*.local.json
+
+public/generated/

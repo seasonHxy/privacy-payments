@@ -71,3 +71,7 @@ PostgresRepository 使用真实 `pg.Pool` 获取一个 client，事务中验证�
 ## 认证迁移追加
 
 002_auth.sql 新增 auth_challenges/auth_sessions，版本1未改动，迁移器逐版本检查checksum。挑战nonce消费与会话签发同事务，并支持撤销/轮换；新增8个真实PostgreSQL认证子场景，但RPC全部mock，见 NEAR_AUTH.md。全套PostgreSQL现为18子场景（含父测试计数20），另有3个PG浏览器用例（第三个mock模式显示，不代表钱包登录）。
+
+## 本轮 L1 独立命名空间
+
+migration003 增加 l1_invoices 与 l1_events；总计三份迁移、15张表（含 schema_migrations）。L1 金额、审批、报价、请求、执行引用、原始证据和审计时间线均在认证加密 payload 内，数据库暴露 UUID、revision、HMAC 幂等及事件相等关系。L0 行不会被 L1 读取或结清。L1 是单付款人/单收款人配置下的独立不可变 v1 工作流，尚无版本编辑和会计披露迁移；不可把这项简化当作完整多租户模式。最终测试数量见 ACCEPTANCE.md。

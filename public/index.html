@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>隐账 · Privacy Payments</title>
     <link rel="stylesheet" href="/style.css" />
-    <script src="/app.js" defer></script>
+    <script src="/app.js" type="module"></script>
   </head>
   <body>
     <div class="mode">
@@ -19,6 +19,7 @@
         ><a href="#review">02 &nbsp; 版本审核</a
         ><a href="#payment">03 &nbsp; 付款确认</a
         ><a href="#disclosure">04 &nbsp; 授权对账</a>
+        <a href="/l1.html">05 &nbsp; 公开测试网待签</a>
       </nav>
       <div class="boundary">
         访问控制 + 存储加密<br />服务端可解密，不是端到端加密。<br />仅使用假数据。
@@ -38,6 +39,7 @@
             <option value="admin">管理员 / admin</option>
           </select></label
         >
+        <button id="logout" class="secondary" hidden>退出登录</button>
       </header>
       <div id="message" role="status" aria-live="polite"></div>
       <div id="content"></div>

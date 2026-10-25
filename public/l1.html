@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>L1 公开测试付款 · 隐账</title>
+    <link rel="stylesheet" href="/l1.css" />
+    <script type="module" src="/l1.js"></script>
+  </head>
+  <body>
+    <header>
+      <a href="/">← 返回登录 / 工作区</a><span>L1 · NEAR TESTNET</span>
+      <button id="logout" type="button" hidden>退出登录</button>
+    </header>
+    <main>
+      <p class="eyebrow">公开测试网 / 用户审阅 / 只读核验</p>
+      <h1>公开测试付款</h1>
+      <p class="warning">
+        testUSD 是无美元价值的测试资产，不是
+        USDC。测试网地址、金额与交易记录公开。本页仅生成待签请求，不会连接钱包执行转账。
+      </p>
+      <div id="message" role="status" aria-live="polite"></div>
+      <section id="configuration" class="card">
+        <h2>检查配置</h2>
+        <p>正在读取服务端配置…</p>
+      </section>
+      <div id="workspace" hidden>
+        <section class="card">
+          <h2>1. 测试账单</h2>
+          <form id="create-form">
+            <label
+              >原子单位金额（整数）<input
+                id="amount"
+                name="amountAtomic"
+                inputmode="numeric"
+                pattern="[1-9][0-9]*"
+                maxlength="78"
+                required
+            /></label>
+            <label
+              >用途（仅填写假数据）<input
+                id="purpose"
+                name="purpose"
+                maxlength="200"
+                required
+            /></label>
+            <button type="submit">创建 L1 测试账单</button>
+          </form>
+          <label
+            >已有 L1 账单<select id="invoice-select">
+              <option value="">选择账单</option>
+            </select></label
+          >
+          <button id="refresh" type="button" class="secondary">
+            刷新已保存状态
+          </button>
+        </section>
+        <div id="detail" hidden>
+          <section class="card">
+            <h2>2. 审批不可变版本</h2>
+            <pre id="invoice"></pre>
+            <button id="approve" type="button">批准当前版本</button>
+          </section>
+          <section class="card">
+            <h2>3. 核对准确转账条件</h2>
+            <p>
+              先检查允许资产和双方 storage
+              注册。未注册时停止，不自动生成注册交易。
+            </p>
+            <button id="quote" type="button">检查前置条件并获取报价</button>
+            <pre id="quote-data">尚无报价</pre>
+            <button id="confirm" type="button">确认当前报价全部条件</button
+            ><button id="prepare" type="button">生成待签请求</button>
+            <pre id="signing">尚未生成待签请求</pre>
+            <p class="small">
+              待签请求不表示已执行。请逐项核对网络、合约、收款方、金额、gas
+              和附加 NEAR；报价过期须重新确认。该直接转账路径不提供自动退款。
+            </p>
+          </section>
+          <section class="card">
+            <h2>4. 记录执行标识与只读核验</h2>
+            <p>
+              只有用户在外部钱包亲自执行后，才填写实际交易哈希。不要填入模拟引用。哈希本身不能证明到账。
+            </p>
+            <form id="reference-form">
+              <label
+                >交易哈希<input
+                  id="reference"
+                  autocomplete="off"
+                  maxlength="64"
+                  required /></label
+              ><button type="submit">保存标识，等待核验</button>
+            </form>
+            <button id="recheck" class="secondary" type="button">
+              重新读取 receipt 核验
+            </button>
+            <pre id="evidence"></pre>
+            <p id="uncertain" class="warning" hidden>
+              状态待核实：不要重新付款。刷新页面或重新核验将恢复同一尝试；超时不等于失败。
+            </p>
+            <button id="acknowledge" type="button">收款人确认已核对到账</button>
+          </section>
+        </div>
+      </div>
+      <footer>
+        仅限配置明确的 NEAR 测试网。L0 模拟记录与 L1 记录隔离；L2
+        保密结算仍未启用。账户权限由服务端核验。
+      </footer>
+    </main>
+  </body>
+</html>
