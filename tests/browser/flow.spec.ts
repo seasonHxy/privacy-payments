@@ -26,6 +26,9 @@ test("four screens, reload recovery, recipient check, scoped export, revoke, mob
   await expect(
     page.getByRole("heading", { name: "不可变版本 v1" }),
   ).toBeVisible();
+  const invoiceId = await page.evaluate(() =>
+    sessionStorage.getItem("invoice"),
+  );
   await page.getByRole("button", { name: "批准当前版本" }).click();
   await expect(page.getByText("有效 · payer", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "进入付款确认" }).click();
@@ -48,12 +51,12 @@ test("four screens, reload recovery, recipient check, scoped export, revoke, mob
   });
   await switchIdentity(page, "recipient");
   await page.getByRole("link", { name: "02   版本审核" }).click();
-  await page.locator("#invoiceSelect").selectOption({ index: 1 });
+  await page.locator("#invoiceSelect").selectOption(invoiceId!);
   await page.getByRole("button", { name: "核对模拟到账" }).click();
   await expect(page.getByRole("status")).toContainText("操作已保存");
   await switchIdentity(page, "payer");
   await page.getByRole("link", { name: "04   授权对账" }).click();
-  await page.locator("#invoiceSelect").selectOption({ index: 1 });
+  await page.locator("#invoiceSelect").selectOption(invoiceId!);
   await page.getByRole("button", { name: "授予当前版本只读访问" }).click();
   await expect(page.getByText("v1 → accountant").first()).toBeVisible();
   await switchIdentity(page, "accountant");

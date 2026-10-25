@@ -71,3 +71,8 @@ npm run test:e2e
 独立复核检查签名前编辑与prepare竞态、原始幂等输入、旧批准/报价、UNKNOWN锁定、具体版本/接收人/字段/期限、下载/导出/撤权缓存以及其他API旁路。审查建议已处理：审计记录明确VERSION_CREATED / DISCLOSURE_GRANTED / DISCLOSURE_REVOKED、当前版本与对象ID；revokedAt使用是否定义判断，避免epoch0误判。会计me/settings不会返回未授权资产合约或付款账户。
 
 审查者独立执行新增闭环10/10（9子+1父）和增强HTTP1/1，未发现阻断性权限或核销漏洞。主线程另外实测浏览器的版本编辑、旧版字段/附件读取下载、撤权后403。完整检查见ACCEPTANCE.md；没有真实账户、钱包或链上验收，也不是生产渗透测试。
+
+
+2026-10-25 加固复核：真实复现并修复401后旧私密DOM残留；加入跨标签/焦点身份复核、epoch阻断迟到响应。新增HTML样式文本不执行与附件text/plain/nosniff/attachment检查、启动错误无凭据回归。独立审查检查XSS/CSRF/金额/证据/下载，无新阻断绕过；指出备份固定/tmp路径风险，手册改用mktemp私有新目录、noclobber、partial文件、校验后rename。实际恢复测试使用临时数据库与fixture AES密钥，不触及钱包。详见ACCEPTANCE最终节。
+
+最终独立复核未发现新的阻断权限/迟到响应泄漏；修正备份checksum引用已重命名.partial的问题，改为最终basename并实际check。保留限制：异步listen端口错误可能输出标准端口/地址堆栈，非配置正文；生产错误处理仍需完善。

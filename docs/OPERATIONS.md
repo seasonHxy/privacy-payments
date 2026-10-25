@@ -17,7 +17,7 @@ bash scripts/ci.sh
 bash scripts/postgres-local.sh stop
 ```
 
-最后一条 stop 在检查失败后也需要人工执行。不要重复 start 或覆盖已有同名容器；确认原容器用途再处理。测试脚本要求本地 PostgreSQL URL，没有数据库就失败，不会跳过后报告全通过。它清除真实模式环境覆盖，依次执行 lint、typecheck、通用测试、build、真实 PostgreSQL 集成、SQLite 浏览器和 PostgreSQL 浏览器。测试在独立临时 schema 中运行，不能用生产数据库执行。浏览器测试可能更新仅含假数据的演示截图；检查后用 git diff 审阅。
+最后一条 stop 在检查失败后也需要人工执行。不要重复 start 或覆盖已有同名容器；确认原容器用途再处理。测试脚本要求本地 PostgreSQL URL，没有数据库就失败，不会跳过后报告全通过。它清除真实模式环境覆盖，依次执行 lint、typecheck、通用测试、build、真实 PostgreSQL 集成、本地备份恢复演练、SQLite 浏览器和 PostgreSQL 浏览器。测试在独立临时 schema 中运行，不能用生产数据库执行。浏览器测试可能更新仅含假数据的演示截图；检查后用 git diff 审阅。
 
 `.github/workflows/checks.yml` 复用同一脚本，只有 contents:read 权限，不持久保存 checkout 凭据，不使用 secrets、不上传文件、不部署。使用官方 actions/checkout 与 actions/setup-node 的完整 commit SHA；2026-10-25 通过官方仓库 git ls-remote v6 核实。PostgreSQL 使用既有固定 digest 镜像。此轮只本地准备，远端 workflow 未运行，不能把本地检查写成 GitHub CI 通过。
 
@@ -36,10 +36,16 @@ bash scripts/postgres-local.sh stop
 PostgreSQL 可用同版本官方 `pg_dump --format=custom --no-owner --no-acl` 创建一致性快照；若需要备份外部附件，还应协调同一时间点。当前附件在加密业务载荷中。下面是**仅本地假数据**示例，执行前停止应用写入，保持数据库容器运行：
 
 ```bash
+set -euo pipefail
 umask 077
-mkdir -p /tmp/privacy-payments-backup
+backup_dir=$(mktemp -d /tmp/privacy-payments-backup.XXXXXXXX)
+# 私有新目录避免复用旧路径、符号链接或覆盖旧备份。
+set -o noclobber
 # 不带密码到命令行，利用本地临时容器内部连接。
-docker exec privacy-payments-postgres pg_dump -U postgres -d privacy_payments --format=custom --no-owner --no-acl > /tmp/privacy-payments-backup/database.dump
+docker exec privacy-payments-postgres pg_dump -U postgres -d privacy_payments --format=custom --no-owner --no-acl > "$backup_dir/database.dump.partial"
+docker exec -i privacy-payments-postgres pg_restore --list < "$backup_dir/database.dump.partial" > "$backup_dir/contents.txt"
+mv "$backup_dir/database.dump.partial" "$backup_dir/database.dump"
+(cd "$backup_dir" && sha256sum database.dump > checksum.txt && sha256sum -c checksum.txt)
 # 根据实际 DATA_DIR，将匹配的 storage.key 另存到受控位置；不输出密钥内容。
 ```
 
@@ -54,3 +60,12 @@ SQLite 演示恢复应停止应用后一起复制数据库及对应密钥；不�
 - [actions/checkout](https://github.com/actions/checkout) 和 [actions/setup-node](https://github.com/actions/setup-node)：官方维护的 checkout/Node 安装步骤；本项目额外固定完整 SHA。
 - [Playwright CI](https://playwright.dev/docs/ci-intro)：安装项目浏览器及依赖并执行测试。
 - [PostgreSQL SQL Dump](https://www.postgresql.org/docs/current/backup-dump.html)：一致性 dump、恢复至新数据库、失败终止与事务恢复。
+
+
+## 本轮实际恢复演练与故障排查
+
+`npm run test:restore` 只接受脚本创建的本机 55432 假数据数据库。它创建两个临时空库，使用官方 pg_dump / pg_restore 完成快照、校验与事务恢复，并清理临时数据库、备份和测试 AES 存储密钥。实际验证不可变 v1/v2 与附件、撤权、UNKNOWN 状态、迁移校验和、正确密钥解密及错误密钥拒绝；恢复后使旧会话和未使用挑战失效。此演练不创建钱包密钥、不接触外部账户，也不代替生产灾备或 SQLite 恢复验收。
+
+启动后打开 `/status.html` 查看配置状态。页面只显示能力状态，不返回账户、RPC URL、密钥或本地配置路径；真实模式默认关闭。启动失败仅打印静态错误码：`AUTH_CONFIGURATION_REQUIRED` 表示未满足真实认证前置条件；`CONFIGURATION_INVALID_OR_UNREADABLE` 表示本地 JSON 缺失或格式不合法；`DATABASE_URL_INVALID` 表示 URL 格式不合法；`STARTUP_CONFIGURATION_OR_DEPENDENCY_ERROR` 需在本机检查数据库连通性和文件权限，勿将配置正文贴入公共问题。
+
+浏览器会话过期、权限拒绝或检测到身份变化会清空敏感视图，需重新登录/刷新。焦点恢复及跨标签登录通知触发身份复核；这不是持续推送的撤权系统，已下载内容无法收回。钱包账户/网络切换不会自动改变服务器身份，必须退出再登录。慢 RPC 时按钮显示处理中；返回或刷新只读取已有状态，UNKNOWN 不重新准备付款。

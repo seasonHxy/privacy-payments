@@ -1,13 +1,41 @@
+import { SessionGuard } from "/session-guard.js";
 const $ = (id) => document.getElementById(id);
 let invoices = [];
 let current;
 let busy = false;
 let user;
 let settings;
+const guard = new SessionGuard(() => {
+  invoices = [];
+  current = undefined;
+  user = undefined;
+  settings = undefined;
+  for (const id of [
+    "invoice",
+    "quote-data",
+    "signing",
+    "evidence",
+    "version-history",
+    "grants",
+    "disclosure-output",
+    "configuration",
+  ])
+    $(id).replaceChildren();
+  for (const el of document.querySelectorAll(
+    "input:not([type=checkbox]),textarea",
+  ))
+    el.value = "";
+  $("invoice-select").replaceChildren();
+  $("workspace").hidden = true;
+  $("disclosure-workspace").hidden = true;
+  $("detail").hidden = true;
+  message("会话或权限已变化，已隐藏私密数据。请返回登录后重新核验身份。");
+});
 let createKey = crypto.randomUUID();
 const writable = () => user === "payer";
 const pretty = (value) => JSON.stringify(value, null, 2);
 async function api(path, body, headers = {}, method = "POST") {
+  const epoch = guard.epoch;
   const response = await fetch(path, {
     method: body === undefined ? "GET" : method,
     credentials: "same-origin",
@@ -19,7 +47,13 @@ async function api(path, body, headers = {}, method = "POST") {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "REQUEST_FAILED");
+  if (!response.ok) {
+    if ([401, 403, 503].includes(response.status) && guard.user)
+      guard.invalidate();
+    throw new Error(data.error || "REQUEST_FAILED");
+  }
+  if (epoch !== guard.epoch) throw Error("IDENTITY_CHANGED_RELOAD_REQUIRED");
+  if (path === "/api/auth/logout") guard.changed();
   return data;
 }
 function message(text) {
@@ -120,9 +154,11 @@ async function run(action) {
   if (busy) return;
   busy = true;
   controls();
-  message("");
+  message("处理中，请勿重复操作；不会自动付款。");
   try {
     await action();
+    if ($("message").textContent === "处理中，请勿重复操作；不会自动付款。")
+      message("");
   } catch (error) {
     message(
       `未完成：${error.message}。若请求中断，请刷新已保存状态；不要重复付款。`,
@@ -143,6 +179,7 @@ $("logout").addEventListener(
   "click",
   () =>
     void run(async () => {
+      guard.invalidate();
       await api("/api/auth/logout", {});
       location.replace("/");
     }),
@@ -160,7 +197,7 @@ $("create-form").addEventListener("submit", (event) => {
       { "Idempotency-Key": createKey },
     );
     createKey = crypto.randomUUID();
-    history.replaceState(null, "", `#${encodeURIComponent(invoice.id)}`);
+    history.pushState(null, "", `#${encodeURIComponent(invoice.id)}`);
     await refresh(invoice.id);
     message("已创建 L1 测试账单。请核对版本与配置中的收款方。");
   });
@@ -169,7 +206,7 @@ $("invoice-select").addEventListener(
   "change",
   () =>
     void run(async () => {
-      history.replaceState(
+      history.pushState(
         null,
         "",
         `#${encodeURIComponent($("invoice-select").value)}`,
@@ -217,12 +254,18 @@ function attachmentInput(id) {
     : {};
 }
 async function download(path, name) {
+  const epoch = guard.epoch;
   const r = await fetch(path, {
     credentials: "same-origin",
     cache: "no-store",
   });
-  if (!r.ok) throw Error((await r.json()).error || "DOWNLOAD_FORBIDDEN");
-  const url = URL.createObjectURL(await r.blob());
+  if (!r.ok) {
+    if ([401, 403, 503].includes(r.status)) guard.invalidate();
+    throw Error((await r.json()).error || "DOWNLOAD_FORBIDDEN");
+  }
+  const blob = await r.blob();
+  if (epoch !== guard.epoch) throw Error("IDENTITY_CHANGED_RELOAD_REQUIRED");
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = name;
@@ -336,6 +379,9 @@ $("refresh-grants").addEventListener(
   "click",
   () => void run(() => refreshGrants()),
 );
+window.addEventListener("popstate", () => {
+  if (guard.user) location.reload();
+});
 await run(async () => {
   const config = await api("/api/l1/config");
   $("configuration").replaceChildren();
@@ -354,6 +400,7 @@ await run(async () => {
   const me = await api("/api/me");
   if (me.authentication !== "NEP413") throw new Error("REAL_AUTH_REQUIRED");
   user = me.user;
+  guard.bind(user);
   $("logout").hidden = false;
   settings = await api("/api/l1/settings");
   details.textContent = pretty(settings);

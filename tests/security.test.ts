@@ -395,3 +395,38 @@ test("NEAR auth startup requires explicit complete config and PostgreSQL; never 
     rmSync(dir, { recursive: true });
   }
 });
+
+test("startup errors do not disclose malformed database credentials or private paths", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pp-startup-redaction-"));
+  try {
+    const result = await new Promise<{ code: number | null; err: string }>(
+      (resolve, reject) => {
+        const child = spawn(
+          process.execPath,
+          ["--import", "tsx", "src/server.ts"],
+          {
+            env: {
+              ...process.env,
+              AUTH_MODE: "demo",
+              PAYMENT_MODE: "L0",
+              STORAGE_DRIVER: "postgres",
+              DATABASE_URL: "PRIVATE_FAKE_CREDENTIAL_INVALID_URL",
+              DATA_DIR: dir,
+            },
+            stdio: ["ignore", "ignore", "pipe"],
+          },
+        );
+        let err = "";
+        child.stderr.on("data", (b) => (err += b));
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code, err }));
+      },
+    );
+    assert.equal(result.code, 1);
+    assert.match(result.err, /DATABASE_URL_INVALID/);
+    assert.ok(!result.err.includes("PRIVATE_FAKE_CREDENTIAL"));
+    assert.ok(!result.err.includes(dir));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

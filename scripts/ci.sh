@@ -15,5 +15,6 @@ npm run typecheck
 npm test
 npm run build
 npm run test:postgres
+npm run test:restore
 npm run test:e2e
 npm run test:e2e:postgres

@@ -18,7 +18,8 @@
     "test:postgres": "tsx --test tests/postgres/*.test.ts",
     "db:migrate": "STORAGE_DRIVER=postgres MIGRATE_ONLY=1 tsx src/server.ts",
     "test:e2e:postgres": "tsx scripts/test-postgres-e2e.ts",
-    "predev": "node scripts/build-wallet.mjs"
+    "predev": "node scripts/build-wallet.mjs",
+    "test:restore": "tsx --test tests/restore/*.test.ts"
   },
   "repository": {
     "type": "git",

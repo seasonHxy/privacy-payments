@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>配置与验收状态 · 隐账</title>
+    <link rel="stylesheet" href="/l1.css" />
+    <script type="module" src="/status.js"></script>
+  </head>
+  <body>
+    <header><a href="/">返回工作区</a></header>
+    <main>
+      <h1>配置与验收状态</h1>
+      <p class="warning">
+        配置可用不等于链上验收通过。此页不修改配置、不收集私钥或助记词，不发起交易。
+      </p>
+      <div id="status" role="status">读取状态…</div>
+      <section class="card">
+        <h2>交付等级</h2>
+        <div id="levels"></div>
+      </section>
+      <section class="card">
+        <h2>可用项与待配置项</h2>
+        <div id="checks"></div>
+      </section>
+      <section class="card">
+        <h2>启动与下一步</h2>
+        <p>
+          默认执行 npm ci → npm run build → npm start，得到本地 L0
+          假数据演示。L1 需要经核实的公开账户、钱包、精确登录域名、testnet
+          RPC/genesis 和 testUSD 合约/精度；详见仓库
+          docs/L1.md。缺配置时保持关闭。
+        </p>
+        <p>
+          钱包切换账户或网络不会自动更改服务器登录身份；请退出后按明确的 testnet
+          登录消息重新认证。签名拒绝或中断不代表付款失败，UNKNOWN 不得重复付款。
+        </p>
+        <p>
+          禁止项：自动签名或广播、自动退款、L2
+          保密结算。真实钱包与链上付款尚未验收；不是生产可用声明。
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

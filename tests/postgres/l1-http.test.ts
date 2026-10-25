@@ -344,6 +344,7 @@ test("L1 HTTP actual auth + PostgreSQL, mock RPC only; no simulator access", asy
     assert.equal(await file.text(), "OLD_SCOPE_ATTACHMENT");
     assert.equal(file.headers.get("cache-control"), "no-store");
     assert.equal(file.headers.get("x-content-type-options"), "nosniff");
+    assert.match(file.headers.get("content-type")!, /^text\/plain/);
     assert.equal(
       (await request(scopedPath + "/attachment?version=1", vc)).status,
       403,

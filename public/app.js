@@ -1,3 +1,4 @@
+import { SessionGuard } from "/session-guard.js";
 import { WalletLogin } from "/wallet-client.js";
 const $ = (s) => document.querySelector(s);
 const esc = (s) =>
@@ -13,24 +14,54 @@ let user = "payer",
   invoices = [],
   selected = sessionStorage.getItem("invoice") || "",
   detail = null;
+let busy = false,
+  renderVersion = 0;
+const guard = new SessionGuard(() => {
+  renderVersion++;
+  invoices = [];
+  detail = null;
+  selected = "";
+  sessionStorage.removeItem("invoice");
+  $("#content").replaceChildren();
+  const text = document.createElement("p"),
+    link = document.createElement("a");
+  text.textContent = "会话或权限已变化，已隐藏私密数据。请重新加载并核验身份。";
+  link.href = "/";
+  link.textContent = "重新加载";
+  $("#content").append(text, link);
+});
 const money = (v) => {
   const b = BigInt(v);
   return `${b / 1000000n}.${(b % 1000000n).toString().padStart(6, "0")} 模拟 USD`;
 };
 async function api(path, method = "GET", body, headers = {}) {
+  const epoch = guard.epoch;
   const r = await fetch("/api" + path, {
+    cache: "no-store",
+    credentials: "same-origin",
     method,
     headers: { "Content-Type": "application/json", ...headers },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const d = await r.json();
-  if (!r.ok) throw Error(d.error || "请求失败");
+  if (!r.ok) {
+    if ([401, 403, 503].includes(r.status) && guard.user) guard.invalidate();
+    throw Error(d.error || "请求失败");
+  }
+  if (epoch !== guard.epoch) throw Error("IDENTITY_CHANGED_RELOAD_REQUIRED");
+  if (
+    method === "POST" &&
+    ["/demo/session", "/auth/verify", "/auth/logout"].includes(path)
+  )
+    guard.changed();
   return d;
 }
 function message(m) {
   $("#message").textContent = m;
 }
 async function action(fn) {
+  if (busy) return;
+  busy = true;
   $("#identity").disabled = true;
   try {
     document.querySelectorAll("button").forEach((b) => (b.disabled = true));
@@ -40,6 +71,7 @@ async function action(fn) {
   } catch (e) {
     message(e.message);
   } finally {
+    busy = false;
     $("#identity").disabled = false;
     document.querySelectorAll("button").forEach((b) => (b.disabled = false));
   }
@@ -59,6 +91,7 @@ function pRow(k, v) {
   return `<div class="row"><span class="small">${esc(k)}</span><b>${esc(v)}</b></div>`;
 }
 async function render() {
+  if (!guard.user) return;
   const page = location.hash.slice(1) || "invoices";
   document
     .querySelectorAll("nav a")
@@ -70,9 +103,14 @@ async function render() {
       payment: "付款确认",
       disclosure: "授权对账",
     }[page] || "私密账单";
-  invoices = await api("/invoices");
-  if (selected && !invoices.some((i) => i.id === selected)) selected = "";
-  detail = selected ? await api("/invoices/" + selected) : null;
+  const version = ++renderVersion;
+  const loaded = await api("/invoices");
+  if (version !== renderVersion) return;
+  if (selected && !loaded.some((i) => i.id === selected)) selected = "";
+  const loadedDetail = selected ? await api("/invoices/" + selected) : null;
+  if (version !== renderVersion) return;
+  invoices = loaded;
+  detail = loadedDetail;
   const target = $("#content");
   if (page === "invoices") {
     target.innerHTML = `<div class="summary"><span class="small">私密账单工作台 / L0</span><strong>每一笔，先核对再确认。</strong><span class="small">账单版本不可变 · 报价限时绑定 · 会计仅见授权字段</span></div><div class="grid"><section class="card"><h2>新建模拟账单</h2>${user === "payer" ? `<form id="create"><label>用途<input name="purpose" value="设计服务 · 十月交付" required maxlength="500"></label><label>目标到账金额（6 位小数）<input name="amount" value="125.00" inputmode="decimal" required pattern="[0-9]+(\\.[0-9]{1,6})?"></label><label>模拟收款地址<input name="address" value="demo:recipient" required pattern="demo:[a-z0-9-]{1,40}"></label><label>附件（可选，仅 UTF-8 .txt，最大 64 KiB）<input name="attachment" type="file" accept=".txt,text/plain"></label><p class="small">资产：模拟 USD · 网络：mock-local<br>仅存储假数据。模拟身份不具备真实钱包权限。</p><button>创建账单</button></form>` : '<p class="empty">当前身份不可创建账单。</p>'}</section><section class="card"><h2>账单列表 <span class="tag">${invoices.length}</span></h2>${invoices.map((i) => `<div class="row"><div><b>${esc(i.payload.purpose)}</b><p class="small">${money(i.payload.amountAtomic)} · v${i.version}<br>${i.settled ? "已核验模拟结算" : "待审核 / 付款"}</p></div><button class="secondary open" data-id="${i.id}">查看</button></div>`).join("") || '<p class="empty">暂无可访问的账单。</p>'}</section></div>`;
@@ -204,6 +242,7 @@ async function render() {
     }
   } else if (page === "disclosure") {
     const grants = await api("/disclosures");
+    if (version !== renderVersion) return;
     target.innerHTML = `<div class="grid"><section class="card"><h2>按单据授权查看</h2>${user === "payer" ? `${choose()}<p class="small">接收人：指定会计 accountant · 只读 · 24 小时后到期</p>${["amountAtomic", "asset", "network", "purpose", "address", "evidence"].map((f, i) => `<label class="check"><input type="checkbox" name="field" value="${f}" ${i < 2 ? "checked" : ""}>${{ amountAtomic: "金额", asset: "资产", network: "网络", purpose: "用途", address: "地址", evidence: "核验证据摘要" }[f]}</label>`).join("")}<p><button id="grant">授予当前版本只读访问</button></p>` : '<p class="small">会计只能查看明确授予的字段，不能读取完整账单，也不能付款。</p>'}<p class="small">撤销仅阻止未来访问，无法收回已下载的内容。披露不授予花费权限。</p></section><section class="card"><h2>披露记录</h2>${grants.map((g) => `<div class="row"><div><b>v${g.version} → ${g.recipient}</b><p class="small">${esc(g.fields.join(", "))}<br>${g.revokedAt ? "已撤权" : new Date(g.expiresAt).toLocaleString() + " 到期"}</p></div>${user === "payer" ? `<button class="secondary revoke" data-id="${g.id}">撤权</button>` : `<button class="secondary read" data-id="${g.id}">查看</button><a class="button secondary" href="/api/disclosures/${g.id}/export">导出</a>`}</div>`).join("") || '<p class="empty">暂无披露记录。</p>'}<pre id="disclosed" hidden></pre></section></div>`;
     if ($("#grant"))
       $("#grant").onclick = () =>
@@ -230,11 +269,16 @@ async function render() {
       (b) =>
         (b.onclick = async () => {
           try {
-            $("#disclosed").textContent = JSON.stringify(
+            $("#disclosed").textContent = "";
+            $("#disclosed").hidden = true;
+            const epoch = guard.epoch;
+            const disclosed = JSON.stringify(
               await api("/disclosures/" + b.dataset.id),
               null,
               2,
             );
+            if (epoch !== guard.epoch || !$("#disclosed")) return;
+            $("#disclosed").textContent = disclosed;
             $("#disclosed").hidden = false;
           } catch (e) {
             message(e.message);
@@ -246,9 +290,12 @@ async function render() {
 }
 $("#identity").onchange = () =>
   action(async () => {
-    user = $("#identity").value;
+    const nextUser = $("#identity").value;
+    guard.invalidate();
+    user = nextUser;
     await api("/demo/session", "POST", { user });
     selected = "";
+    guard.bind(user);
   });
 window.onhashchange = () => render().catch((e) => message(e.message));
 (async () => {
@@ -266,6 +313,7 @@ window.onhashchange = () => render().catch((e) => message(e.message));
     $("#logout").hidden = false;
     $("#logout").onclick = async () => {
       try {
+        guard.invalidate();
         await walletLogin.logout();
         location.reload();
       } catch (e) {
@@ -280,6 +328,7 @@ window.onhashchange = () => render().catch((e) => message(e.message));
       return;
     }
     user = me.user;
+    guard.bind(user);
     $("#identity").value = user;
   } catch {
     if (authConfig.mode === "NEP413") {
@@ -304,6 +353,7 @@ window.onhashchange = () => render().catch((e) => message(e.message));
       return;
     }
     await api("/demo/session", "POST", { user });
+    guard.bind(user);
   }
   await render();
 })().catch((e) => message(e.message));

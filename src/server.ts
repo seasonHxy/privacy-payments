@@ -19,6 +19,13 @@ import {
   type ServiceAPI,
 } from "./domain.js";
 
+function readSafeConfig<T>(path: string, schema: z.ZodType<T>): T {
+  try {
+    return schema.parse(JSON.parse(readFileSync(resolve(path), "utf8")));
+  } catch {
+    throw new Fault(500, "CONFIGURATION_INVALID_OR_UNREADABLE");
+  }
+}
 export function createApp(
   service: ServiceAPI,
   origin = "http://127.0.0.1:3000",
@@ -76,6 +83,54 @@ export function createApp(
       "Set-Cookie",
       `${name}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${origin.startsWith("https:") ? "; Secure" : ""}`,
     );
+  app.get("/api/configuration-status", (_req, res) =>
+    res.json({
+      levels: [
+        {
+          name: "L0 模拟",
+          state: l1 ? "隔离关闭" : "可用",
+          note: "假数据闭环已自动化验证，无真实资金移动",
+        },
+        {
+          name: "L1 公开测试网",
+          state: l1 ? "配置可用 / 真实未验收" : "缺少启用配置 / 默认关闭",
+          note: "仅fixture验证；testUSD无美元价值",
+        },
+        {
+          name: "L2 保密结算",
+          state: "禁止 / BLOCKED",
+          note: "没有完整权限与到账退款证据",
+        },
+      ],
+      checks: [
+        {
+          name: "真实认证",
+          state: auth ? "可用" : "缺失",
+          note: "需要精确origin、公开成员映射及可信testnet网络锚点",
+        },
+        {
+          name: "钱包登录",
+          state: auth?.config.walletId ? "配置可用" : "缺失",
+          note: "NEAR Connect注入式钱包，真实钱包兼容性未验收",
+        },
+        {
+          name: "L1允许资产与网络",
+          state: l1 ? "配置可用" : "缺失",
+          note: "需要核实testUSD合约、精度、RPC和genesis；不猜地址",
+        },
+        {
+          name: "L1会计授权",
+          state: l1?.accountant ? "配置可用" : "缺失",
+          note: "需要明确accountant公开账户，不授予花费权",
+        },
+        {
+          name: "自动资金执行和退款",
+          state: "禁止",
+          note: "本应用不签名、不广播、不自动退款",
+        },
+      ],
+    }),
+  );
   app.get("/api/auth/config", (_req, res) =>
     res.json({
       mode: auth ? "NEP413" : "DEMO",
@@ -506,123 +561,139 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  check(
-    !process.env.PAYMENT_MODE ||
-      process.env.PAYMENT_MODE === "L0" ||
-      (process.env.PAYMENT_MODE === "L1" &&
-        process.env.AUTH_MODE === "near" &&
-        process.env.STORAGE_DRIVER === "postgres" &&
-        process.env.L1_CONFIG),
-    "REAL_MODES_DISABLED",
-    500,
-  );
-  const directory = resolve(process.env.DATA_DIR ?? "data");
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const keyPath = resolve(directory, "storage.key");
-  if (!existsSync(keyPath))
-    writeFileSync(keyPath, randomBytes(32), { mode: 0o600, flag: "wx" });
-  const driver = process.env.STORAGE_DRIVER ?? "sqlite";
-  check(["sqlite", "postgres"].includes(driver), "INVALID_STORAGE_DRIVER", 500);
-  const authMode = process.env.AUTH_MODE ?? "demo";
-  check(["demo", "near"].includes(authMode), "INVALID_AUTH_MODE", 500);
-  let auth: NearAuth | undefined;
-  let l1: L1Service | undefined;
-  let origin =
-    process.env.APP_ORIGIN ??
-    `http://127.0.0.1:${Number(process.env.PORT ?? 3000)}`;
-  if (authMode === "near")
+  try {
     check(
-      driver === "postgres" && process.env.NEAR_AUTH_CONFIG,
-      "AUTH_CONFIGURATION_REQUIRED",
+      !process.env.PAYMENT_MODE ||
+        process.env.PAYMENT_MODE === "L0" ||
+        (process.env.PAYMENT_MODE === "L1" &&
+          process.env.AUTH_MODE === "near" &&
+          process.env.STORAGE_DRIVER === "postgres" &&
+          process.env.L1_CONFIG),
+      "REAL_MODES_DISABLED",
       500,
     );
-  let service: ServiceAPI;
-  let close: () => void | Promise<void>;
-  if (driver === "postgres") {
-    check(process.env.DATABASE_URL, "DATABASE_URL_REQUIRED", 500);
-    const url = new URL(process.env.DATABASE_URL);
+    const directory = resolve(process.env.DATA_DIR ?? "data");
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const keyPath = resolve(directory, "storage.key");
+    if (!existsSync(keyPath))
+      writeFileSync(keyPath, randomBytes(32), { mode: 0o600, flag: "wx" });
+    const driver = process.env.STORAGE_DRIVER ?? "sqlite";
     check(
-      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname),
-      "LOCAL_DATABASE_REQUIRED",
+      ["sqlite", "postgres"].includes(driver),
+      "INVALID_STORAGE_DRIVER",
       500,
     );
-    const { Pool } = await import("pg");
-    const { PostgresRepository } = await import("./postgres.js");
-    const repo = new PostgresRepository(
-      new Pool({ connectionString: process.env.DATABASE_URL }),
-      readFileSync(keyPath),
-    );
-    await repo.migrate();
-    service = repo.api();
-    if (authMode === "near") {
-      const config = authConfigSchema.parse(
-        JSON.parse(
-          readFileSync(resolve(process.env.NEAR_AUTH_CONFIG!), "utf8"),
-        ),
-      );
+    const authMode = process.env.AUTH_MODE ?? "demo";
+    check(["demo", "near"].includes(authMode), "INVALID_AUTH_MODE", 500);
+    let auth: NearAuth | undefined;
+    let l1: L1Service | undefined;
+    let origin =
+      process.env.APP_ORIGIN ??
+      `http://127.0.0.1:${Number(process.env.PORT ?? 3000)}`;
+    if (authMode === "near")
       check(
-        process.env.APP_ORIGIN === config.origin,
-        "AUTH_ORIGIN_CONFIGURATION_REQUIRED",
+        driver === "postgres" && process.env.NEAR_AUTH_CONFIG,
+        "AUTH_CONFIGURATION_REQUIRED",
         500,
       );
-      origin = config.origin;
-      auth = new NearAuth(
-        repo.pool,
-        readFileSync(keyPath),
-        config,
-        new NearReadOnlyRpc({
-          url: config.rpcUrl,
-          chainId: config.chainId,
-          genesisHash: config.genesisHash,
-        }),
+    let service: ServiceAPI;
+    let close: () => void | Promise<void>;
+    if (driver === "postgres") {
+      check(process.env.DATABASE_URL, "DATABASE_URL_REQUIRED", 500);
+      let url: URL;
+      try {
+        url = new URL(process.env.DATABASE_URL);
+      } catch {
+        throw new Fault(500, "DATABASE_URL_INVALID");
+      }
+      check(
+        ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname),
+        "LOCAL_DATABASE_REQUIRED",
+        500,
       );
-      if (process.env.PAYMENT_MODE === "L1") {
-        const paymentConfig = l1ConfigSchema.parse(
-          JSON.parse(readFileSync(resolve(process.env.L1_CONFIG!), "utf8")),
+      const { Pool } = await import("pg");
+      const { PostgresRepository } = await import("./postgres.js");
+      const repo = new PostgresRepository(
+        new Pool({ connectionString: process.env.DATABASE_URL }),
+        readFileSync(keyPath),
+      );
+      await repo.migrate();
+      service = repo.api();
+      if (authMode === "near") {
+        const config = readSafeConfig(
+          process.env.NEAR_AUTH_CONFIG!,
+          authConfigSchema,
         );
-        l1 = new L1Service(
+        check(
+          process.env.APP_ORIGIN === config.origin,
+          "AUTH_ORIGIN_CONFIGURATION_REQUIRED",
+          500,
+        );
+        origin = config.origin;
+        auth = new NearAuth(
           repo.pool,
           readFileSync(keyPath),
-          paymentConfig,
+          config,
           new NearReadOnlyRpc({
-            url: paymentConfig.rpcUrl,
-            chainId: paymentConfig.chainId,
-            genesisHash: paymentConfig.genesisHash,
+            url: config.rpcUrl,
+            chainId: config.chainId,
+            genesisHash: config.genesisHash,
           }),
-          undefined,
-          Object.entries(auth.config.members).find(
-            ([, role]) => role === "accountant",
-          )?.[0],
         );
+        if (process.env.PAYMENT_MODE === "L1") {
+          const paymentConfig = readSafeConfig(
+            process.env.L1_CONFIG!,
+            l1ConfigSchema,
+          );
+          l1 = new L1Service(
+            repo.pool,
+            readFileSync(keyPath),
+            paymentConfig,
+            new NearReadOnlyRpc({
+              url: paymentConfig.rpcUrl,
+              chainId: paymentConfig.chainId,
+              genesisHash: paymentConfig.genesisHash,
+            }),
+            undefined,
+            Object.entries(auth.config.members).find(
+              ([, role]) => role === "accountant",
+            )?.[0],
+          );
+        }
       }
+      close = () => repo.close();
+    } else {
+      const store = new Store(
+        resolve(directory, "app.sqlite"),
+        readFileSync(keyPath),
+      );
+      service = new Service(store);
+      close = () => store.close();
     }
-    close = () => repo.close();
-  } else {
-    const store = new Store(
-      resolve(directory, "app.sqlite"),
-      readFileSync(keyPath),
+    if (process.env.MIGRATE_ONLY === "1") {
+      await close();
+      process.stdout.write("Local L0 schema ready.\n");
+    } else {
+      await service.recover();
+      const port = Number(process.env.PORT ?? 3000);
+      const server = createApp(service, origin, auth, { l1 }).listen(
+        port,
+        "127.0.0.1",
+        () =>
+          process.stdout.write(
+            `${l1 ? "L1 request-only" : "L0 demo"} ${driver}: http://127.0.0.1:${port} — ${l1 ? "公开测试网待签模式，无自动付款。" : NOTICE}\n`,
+          ),
+      );
+      process.once("SIGTERM", () =>
+        server.close(() => {
+          void close();
+        }),
+      );
+    }
+  } catch (error) {
+    process.stderr.write(
+      `Startup refused: ${error instanceof Fault ? error.code : "STARTUP_CONFIGURATION_OR_DEPENDENCY_ERROR"}\n`,
     );
-    service = new Service(store);
-    close = () => store.close();
-  }
-  if (process.env.MIGRATE_ONLY === "1") {
-    await close();
-    process.stdout.write("Local L0 schema ready.\n");
-  } else {
-    await service.recover();
-    const port = Number(process.env.PORT ?? 3000);
-    const server = createApp(service, origin, auth, { l1 }).listen(
-      port,
-      "127.0.0.1",
-      () =>
-        process.stdout.write(
-          `${l1 ? "L1 request-only" : "L0 demo"} ${driver}: http://127.0.0.1:${port} — ${l1 ? "公开测试网待签模式，无自动付款。" : NOTICE}\n`,
-        ),
-    );
-    process.once("SIGTERM", () =>
-      server.close(() => {
-        void close();
-      }),
-    );
+    process.exit(1);
   }
 }

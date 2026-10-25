@@ -8,6 +8,7 @@ for (const scenario of [
   "reject",
   "wrong-account",
   "forged-frame",
+  "interrupted",
 ] as const) {
   test(`official injected SDK NEP-413 browser protocol: ${scenario}`, async ({
     page,
@@ -106,6 +107,7 @@ for (const scenario of [
                 ],
                 signMessage: async (p: { nonce: Uint8Array }) => {
                   if (scenario === "reject") throw Error("USER_REJECTED");
+                  if (scenario === "interrupted") return new Promise(() => {});
                   return bridge.fixtureWalletSignature({
                     ...p,
                     nonce: [...p.nonce],
@@ -177,7 +179,19 @@ for (const scenario of [
       await expect(
         page.getByRole("heading", { name: "新建模拟账单" }),
       ).toBeVisible();
-    else
+    else if (scenario === "interrupted") {
+      await expect(
+        page.getByRole("button", { name: "连接钱包并签署登录消息" }),
+      ).toBeDisabled();
+      await expect.poll(() => calls.length).toBe(1);
+      await page.reload();
+      await expect(
+        page.getByRole("heading", { name: "需要钱包登录" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "连接钱包并签署登录消息" }),
+      ).toBeEnabled();
+    } else
       await expect(page.getByRole("status")).toHaveText(
         scenario === "reject"
           ? "USER_REJECTED"

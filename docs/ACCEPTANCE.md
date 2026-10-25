@@ -158,3 +158,29 @@
 SDK明确为 **@hot-labs/near-connect 0.11.4**。允许RPC仅status、query(view_access_key及ft_metadata/storage_balance_of/ft_balance_of只读call_function)、tx_status、block。固定HTTPS配置端点、testnet chain_id和genesis_hash，每次业务查询前检查网络与同步状态；query=final，交易要求FINAL，执行receipt的block_hash和timestamp_nanosec绑定确认时间窗口。信任配置RPC，不是轻客户端证明。没有签名/广播交易或自动退款API。
 
 当前交付：L0可运行原型与补齐版本/逐字段披露的L1待签/核验代码，fixture验收通过；真实L1尚未执行，非生产MVP。直接ft_transfer自动退款未支持、不能任意撤回；异常保留人工核对，与未来L2退款严格区分。
+
+
+## 2026-10-25 有边界加固最终验收（覆盖前文旧计数）
+
+本轮实际启动应用，以假数据检查桌面和390px窄屏。复现会话已退出后审批接口401但旧敏感DOM仍在的问题；现已通过会话失效清屏、跨标签身份通知、焦点恢复身份复核和请求epoch防迟到响应修复。新增只读配置状态页，区分缺失/可用/禁止项，不返回配置值。启动失败输出静态错误码，避免URL凭据、配置正文或路径进入日志。独立安全审查未发现新的可复现资金/权限绕过；修正备份手册固定临时路径风险，并补下载MIME断言。
+
+| 检查 | 最终结果 | 实际范围 |
+|---|---|---|
+| lint / typecheck / production build | PASS | Node24，锁定依赖，自托管钱包bundle |
+| 通用 Node | 29/29 PASS | 29顶层；L0含SQLite、纯NEP413/RPC及HTTP安全反例，不等于29项真实认证 |
+| PostgreSQL Node | 46/46 PASS | 4父+42叶；父内8认证+10存储+9版本披露+11L1=38子；另1HTTP+3实际浏览器=42叶 |
+| PostgreSQL备份恢复 | 1/1 PASS | 官方pg_dump/pg_restore，本地新库，真实加密载荷与测试存储密钥，清理后无残留 |
+| SQLite启动 Playwright | 13/13 PASS | 3实际L0（含失效清屏）+1配置状态+1认证UI路由mock+3L1路由mock+5SDK钱包mock |
+| PostgreSQL启动 Playwright | 13/13 PASS | 前述L0与状态页改用PG，其余9项仍有路由mock；真实认证/L1后端浏览器列在PG Node的3项中 |
+| 外部钱包、真实RPC到账、部署、GitHub CI | NOT RUN | 未创建账户/钱包、未执行交易，新增代码与workflow未推送 |
+| L2 | BLOCKED | 保密路径权限、资产、结算与退款证据未具备；保持禁用 |
+
+新实际PG浏览器测试无应用HTTP路由mock：重复提交只有一张单据、前进/返回恢复选定单据、HTML样式用途与附件不执行、慢RPC期间退出后迟到响应不重绘、错链拒绝、刷新恢复UNKNOWN且禁重付、收款人fixture核验及确认。已有真实PG浏览器覆盖创建/编辑/审批/待签/会计逐字段读取/导出/附件/撤权；钱包拒绝、中断刷新、账户不符和伪造注入通过SDK受控mock验证，未验证某个真实钱包扩展的兼容性。
+
+恢复演练保留v1/v2与附件、撤权、UNKNOWN、迁移checksum，错误密钥拒绝；恢复后原会话和挑战失效。它不证明生产RPO/RTO，也未验证生产密钥管理、外部附件存储或SQLite灾备。中途测试曾因索引选中其他并行测试的账单、以及在钱包请求发出前刷新而失败；改为明确账单ID及等待可观察请求后，全量脚本退出0，无跳过。
+
+截图仅假数据：config-desktop.png、config-mobile.png、session-cleared-mobile.png、l1-unknown-mobile.png、l1-recipient-desktop.png、payment-desktop.png、disclosure-mobile.png，随本地交付evidence目录保存；测试日志为final-checks.log。L1截图的VERIFIED_SUCCESS来源是fixture，不能作为真实付款凭证。
+
+限制：没有主动推送/定时轮询撤权，焦点恢复、后续请求及跨标签身份通知触发清屏；已下载内容无法收回。钱包账户或网络切换不会静默改变服务器身份，需退出重新认证。L1窄屏没有横向溢出，但准确请求/证据JSON使页面较长，仍是技术原型。真实模式默认关闭，L0可运行；L1代码/fixture验收，真实未执行；L2禁用。不是完整生产MVP。本轮到此停止扩展功能。
+
+SDK仍为 @hot-labs/near-connect 0.11.4。只读RPC固定HTTPS端点、testnet chain_id、genesis_hash；每次业务查询检查网络，同步状态/最终性受约束，允许status、query(view_access_key与白名单只读合约方法)、tx_status FINAL、block。信任配置RPC，不是轻客户端证明。最少用户输入见AUTH_L1_INPUTS.md及L1.md：精确origin、公开角色账户、钱包选择、可信testnet RPC/genesis、经核实testUSD合约/精度；链上操作须用户另行授权并本人签名，永不索取私钥。
