@@ -1,0 +1,9 @@
+{
+  "origin": "https://login.example.invalid",
+  "rpcUrl": "https://rpc.example.invalid",
+  "chainId": "testnet",
+  "genesisHash": "REPLACE_WITH_VERIFIED_TESTNET_GENESIS_HASH",
+  "members": {
+    "REPLACE_WITH_EXISTING_TESTNET_ACCOUNT": "payer"
+  }
+}

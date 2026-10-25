@@ -28,7 +28,7 @@
 
 `inspectNearReceipt` 检查 FINAL、交易 hash/signer/receiver、成功结果、指定合约 receipt executor、NEP-141 事件版本、付款/收款/整数金额及冲突事件。任何匹配仅返回 `OFFLINE_MATCH_ONLY`，永不返回真实 VERIFIED_SUCCESS。
 
-尚未实现 RPC 拉取/网络 genesis 校验/可信资产元数据确认/余额与收款独立核对/钱包请求构造/真实退款查询/真实 L1 状态集成。当前不接受上传外部 receipt 来结清账单。fixture 合约名明确为 `fixture.testnet`，不代表部署地址。
+固定网络 RPC 拉取/genesis 校验现已实现但仅 mock 测试；可信资产元数据确认/余额与收款独立核对/钱包请求构造/真实退款查询/真实 L1 状态集成仍未实现。当前不接受上传外部 receipt 来结清账单。fixture 合约名明确为 `fixture.testnet`，不代表部署地址。
 
 ## 下一阶段开关条件
 
@@ -37,3 +37,5 @@ L1：用户明确批准测试条件，验证 testUSD 合约和 decimals、网络
 L2：逐项确认允许资产、精确输出条件、所有费用、报价有效期、签名格式、查询权限、可信结算凭据、收款核对及退款证据；完成隐私矩阵和授权的真实交易验收。不能仅修改 PAYMENT_MODE 即开启。
 
 比赛规则页面浏览工具此次因 text/markdown 内容类型未读取成功；未据此做资格结论。赛前开发如实记录，最终规则、资格及提交信息另行确认。
+
+2026-10-25 认证追加：核实NEP-413、view_access_key、status和tx_status官方文档，实现默认禁用的服务端登录基础及保守只读receipt图验证。仅fixture/mock测试，无真实RPC/钱包/账户绑定或L1执行；见 NEAR_AUTH.md。

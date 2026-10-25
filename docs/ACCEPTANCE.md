@@ -8,16 +8,16 @@
 | --- | --- | --- |
 | npm run lint | PASS | ESLint src/tests，无错误；初轮未使用参数问题已修复 |
 | npm run typecheck | PASS | 严格检查服务端、测试和 Playwright 配置 |
-| npm test | PASS | 23 tests，23 pass，0 fail，0 skipped |
+| npm test | PASS | 28 tests，28 pass，0 fail，0 skipped |
 | npm run build | PASS | TypeScript 编译至 dist；npm start 启动的是构建结果 |
-| npm run test:e2e | PASS | 2/2 Chromium 浏览器测试，约 4.9 秒；完整闭环、刷新恢复、修改和 UNKNOWN 锁定 |
+| npm run test:e2e | PASS | 3/3 Chromium 浏览器测试，约 4.9 秒；完整闭环、刷新恢复、修改和 UNKNOWN 锁定 |
 | npm audit --omit=dev | PASS | 当次 registry 审计报告 0 vulnerabilities；不是安全审计证明 |
 | 桌面/移动 UI | PASS | 1280 宽桌面、390×844 移动；移动没有横向溢出，主流程没有 pageerror；截图在 evidence/ |
 | Playwright 自带浏览器安装 | BLOCKED（已替代） | CDN 返回 403 Domain forbidden；改用已安装 /usr/bin/chromium 完成测试，没有扩大权限 |
 | L1 真实 testUSD 付款/核验 | NOT RUN / 禁用 | 无真实账户、钱包、资产合约/精度核实或资金操作授权；只有离线 helper 测试 |
 | L2 保密付款/退款 | BLOCKED / 禁用 | 完整历史邀请权限、真实收款和退款证据、授权条件缺失 |
-| PostgreSQL 关系持久化、迁移、行锁、CAS | PASS | 实际 PostgreSQL 18.6；10 个子场景，Node 含父测试计数 11/11；另有 2/2 PostgreSQL 浏览器 E2E |
-| 生产登录、独立网络 worker、真实钱包 | NOT RUN / 未实现 | 离线登录 proof helper 有测试，但不签发真实会话 |
+| PostgreSQL 关系持久化、迁移、行锁、CAS | PASS | 实际 PostgreSQL 18.6；18 个子场景，Node 含父测试计数 20/20；另有 3/3 PostgreSQL 浏览器 E2E |
+| 真实账户/钱包登录互通、独立网络 worker、真实钱包付款 | NOT RUN / 未验收 | NEP-413服务端会话已实现并通过mock+PostgreSQL测试；未连接真实账户或钱包 |
 | 公开推送、PR、部署、比赛提交 | NOT RUN | 用户限制；未执行 |
 
 最终运行的检查没有未解决失败项。初始 npm 缓存目录不可写，改用 `/tmp/npm-cache` 后安装成功；未申请越权。浏览器 CDN 失败不是浏览器测试通过的依据，测试实际使用系统 Chromium。
@@ -71,3 +71,22 @@
 - Library 支持流程有界重试一次，仍在工具发现 tools/list 阶段返回 network。未上传、无 library_file_id；本地 ZIP/报告保留，不能称已交付原生附件。
 
 架构和复现见 [POSTGRES.md](POSTGRES.md)，真实认证/钱包/L1 最小输入见 [AUTH_L1_INPUTS.md](AUTH_L1_INPUTS.md)。
+
+## 2026-10-25 NEP-413 认证基础最终追加（当前结果）
+
+| 检查 | 当前结果 | 证据边界 |
+| --- | --- | --- |
+| lint/typecheck/build | PASS | 编译与静态检查，不代表生产认证审计 |
+| 通用测试 | PASS 28/28 | NEP-413公开示例字节、签名反例、固定RPC网络、严格直接receipt、原L0安全回归；全部fixture/mock |
+| PostgreSQL | PASS 20/20（18子场景+2父） | 含8个新增认证子场景：nonce六并发仅一会话、重放、错域名/链/权限、过期、撤销、插入回滚、并发轮换及退出竞态、HTTP角色隔离 |
+| SQLite浏览器 | PASS 3/3 | 两个L0闭环；一个mock认证模式显示测试 |
+| PostgreSQL浏览器 | PASS 3/3 | 两个真实PG支持的L0闭环；一个mock认证模式显示测试 |
+| 真实NEAR RPC/账户/钱包 | NOT RUN | 没有访问真实账户RPC、连接钱包或绑定真实账户 |
+| L1付款、L2结算退款 | NOT RUN / BLOCKED | 支付硬禁用；不以fixture匹配替代真实证据 |
+| Library上传 | NOT RUN（本轮） | 遵守不重试要求，原交付阻塞未解除，无library_file_id |
+
+独立审查复现并修复：constructor原型账户绕过配置检查、宽松action字段/非规范Base64/悬空receipt引用；分别有拒绝断言。另新增并发rotate仅一赢家、阻塞RPC期间logout后resolve失败的定向测试。
+
+一轮新增浏览器检查曾发现CSS的label display规则覆盖hidden属性，导致NEP413模式仍显示演示选择器（服务端仍拒绝demo）。已统一hidden样式并通过3/3重跑，没有保留失败项。
+
+认证默认关闭，示例配置含不可用占位符；当前无钱包客户端接入，也未部署身份提供商。详见 NEAR_AUTH.md 与更新后的 AUTH_L1_INPUTS.md。前文23/11/2等计数为上一轮历史，当前以本表为准。

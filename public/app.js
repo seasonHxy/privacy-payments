@@ -250,11 +250,20 @@ $("#identity").onchange = () =>
   });
 window.onhashchange = () => render().catch((e) => message(e.message));
 (async () => {
+  const authConfig = await api("/auth/config");
+  if (authConfig.mode === "NEP413")
+    $("#identity").closest("label").hidden = true;
   try {
     const me = await api("/me");
     user = me.user;
     $("#identity").value = user;
   } catch {
+    if (authConfig.mode === "NEP413") {
+      $("#title").textContent = "账户登录";
+      $("#content").innerHTML =
+        '<section class="card"><h2>需要钱包登录</h2><p class="small">当前启用 NEAR 登录校验，演示身份切换已关闭。钱包连接界面尚未接入；付款功能仍仅为模拟。</p></section>';
+      return;
+    }
     await api("/demo/session", "POST", { user });
   }
   await render();

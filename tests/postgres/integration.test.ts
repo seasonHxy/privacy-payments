@@ -58,7 +58,7 @@ test("real PostgreSQL integration (isolated disposable schema)", async (t) => {
         assert.match(version.rows[0].version, /PostgreSQL 18/);
         assert.equal(
           (await pool.query("SELECT * FROM schema_migrations")).rowCount,
-          1,
+          2,
         );
         assert.equal(
           (
@@ -67,7 +67,7 @@ test("real PostgreSQL integration (isolated disposable schema)", async (t) => {
               [schema],
             )
           ).rows[0].n,
-          11,
+          13,
         );
       },
     );

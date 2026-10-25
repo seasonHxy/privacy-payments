@@ -67,3 +67,7 @@ PostgresRepository 使用真实 `pg.Pool` 获取一个 client，事务中验证�
 `npm run test:e2e:postgres`：实际 PostgreSQL 后端运行完整授权/收款确认/导出撤权和改版/UNKNOWN 刷新两个浏览器流程。SQLite 的 E2E 单独运行并单独报告。
 
 官方依据：[PostgreSQL 行锁](https://www.postgresql.org/docs/current/explicit-locking.html)、[数据库约束](https://www.postgresql.org/docs/current/ddl-constraints.html)、[node-postgres 同连接事务](https://node-postgres.com/features/transactions)。
+
+## 认证迁移追加
+
+002_auth.sql 新增 auth_challenges/auth_sessions，版本1未改动，迁移器逐版本检查checksum。挑战nonce消费与会话签发同事务，并支持撤销/轮换；新增8个真实PostgreSQL认证子场景，但RPC全部mock，见 NEAR_AUTH.md。全套PostgreSQL现为18子场景（含父测试计数20），另有3个PG浏览器用例（第三个mock模式显示，不代表钱包登录）。

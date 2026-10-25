@@ -7,7 +7,7 @@
 | 等级 | 当前状态 |
 | --- | --- |
 | L0 | 已实现和自动化验证；所有金额、地址、执行结果均为模拟 |
-| L1 | 禁用。只有离线 NEAR receipt 检查辅助函数与合成 fixture 测试；没有真实 testUSD 付款 |
+| L1 | 禁用。已有固定网络只读 receipt 适配器，但只通过合成 fixture/mock 测试；没有真实 testUSD 付款 |
 | L2 | BLOCKED。没有完整权限、可信到账/退款证据或获准交易测试条件 |
 
 ## 执行 X，看到 Y
@@ -48,7 +48,7 @@ npm run test:e2e
 - 首次启动创建 `data/storage.key`（随机 AES 存储密钥，**不是钱包密钥**）及加密 SQLite 数据库。`data/` 已忽略，不提交。备份/恢复必须同时保留密钥及数据库；没有密钥无法解密。
 - 可以通过 `DATA_DIR`、`PORT` 更改目录和端口。`PAYMENT_MODE` 只接受 L0，设置 L1/L2 会在启动时失败。PostgreSQL 使用 `STORAGE_DRIVER=postgres` 和本地 `DATABASE_URL`；不会自动迁移旧 SQLite 数据。
 - 固定允许资产 `mock:USD`，6 位小数，模拟网络 `mock-local`；不是 USDC，也不是 testUSD。金额 API 只接收正十进制整数字符串，BigInt 运算。
-- 模拟登录可切换预置身份，**没有真正身份认证保证**。不得用它接入 L1/L2。会话为 HttpOnly、SameSite=Strict、有期限的服务端令牌；重启后需重新选择演示身份，付款状态仍持久保存。
+- 默认模拟登录可切换预置身份，**没有真正身份认证保证**。另有默认关闭的 NEP-413 服务端认证路径（见 docs/NEAR_AUTH.md），只经 fixture/mock 与 PostgreSQL 验证，未连接真实钱包。不得用它接入 L1/L2。会话为 HttpOnly、SameSite=Strict、有期限的服务端令牌；重启后需重新选择演示身份，付款状态仍持久保存。
 - 存储加密和对象访问控制，不是端到端加密或服务商不可见。服务端持有解密能力。主机同时持有密钥和数据库，不抵御完整主机入侵。
 - 只允许纯文本附件；不支持 PDF、图片、OCR、多租户管理 UI、生产登录、钱包连接、真实签名或真实退款。管理员无付款权，成员管理尚未实现。
 - worker 在提交后及进程启动时核验模拟证据；没有独立队列或真实链轮询。UNKNOWN 支持显式重新核验，不能当失败重付。
@@ -64,6 +64,7 @@ npm run test:e2e
 - [对抗性复核与修复](docs/REVIEW.md)
 - [PostgreSQL 运行、迁移和实测](docs/POSTGRES.md)
 - [真实认证与 L1 最小输入](docs/AUTH_L1_INPUTS.md)
+- [NEP-413 协议、会话与只读 RPC](docs/NEAR_AUTH.md)
 - [桌面截图](docs/evidence/payment-desktop.png) / [移动截图](docs/evidence/disclosure-mobile.png)
 
 本轮开发于 2026-10-24 UTC 在空云端仓库开始（香港时间 2026-10-25）。这是赛前工作记录，不保证比赛资格；规则与最终提交由用户另行核实。仓库初始无 README、AGENTS.md 或已有代码；工作分支是环境预设的 `work`，未改动远程 main。

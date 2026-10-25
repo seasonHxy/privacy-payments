@@ -52,3 +52,7 @@ npm run test:e2e
 - Library 交付状态以主对话确认的 Library 返回结果为准；本地 ZIP 存在不等于已上传。
 
 2026-10-25 追加复核：PostgreSQL 确实使用 pg/关系表/事务，不使用 SQLite；发现的 invoice 元数据不一致、审计 AAD 记录绑定和纯登录 origin 协议边界均已修复并测试。最新验收以 ACCEPTANCE.md 的 PostgreSQL 追加记录为准，原 22 项/2 项计数为上一轮历史。
+
+## NEP-413 追加审查
+
+独立审查确认编码与事务设计，发现并复现constructor账户原型命中，以及receipt额外action字段、非规范Base64、悬空返回引用。现使用自有属性与角色枚举、strict action/schema、Base64重编码一致性及图引用检查，负例回归通过。补充并发rotate和RPC等待期间logout回归，检查实际赢家数量和访问被拒绝。未做真实账户/钱包验证；所有网络响应为mock。最终结果见ACCEPTANCE.md最新表。

@@ -364,3 +364,34 @@ test("verifier exception does not crash HTTP server or invent success; explicit 
     store.close();
   }
 });
+
+test("NEAR auth startup requires explicit complete config and PostgreSQL; never auto-enables", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pp-auth-mode-"));
+  try {
+    const result = await new Promise<{ code: number | null; err: string }>(
+      (resolve, reject) => {
+        const child = spawn(
+          process.execPath,
+          ["--import", "tsx", "src/server.ts"],
+          {
+            env: {
+              ...process.env,
+              AUTH_MODE: "near",
+              STORAGE_DRIVER: "sqlite",
+              DATA_DIR: dir,
+            },
+            stdio: ["ignore", "ignore", "pipe"],
+          },
+        );
+        let err = "";
+        child.stderr.on("data", (b) => (err += b));
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code, err }));
+      },
+    );
+    assert.notEqual(result.code, 0);
+    assert.match(result.err, /AUTH_CONFIGURATION_REQUIRED/);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});

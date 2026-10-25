@@ -113,3 +113,24 @@ test("edit invalidates approval; interrupted timeout stays locked after reload",
     0,
   );
 });
+
+test("NEP-413 configured UI never falls back to demo identity on missing session", async ({
+  page,
+}) => {
+  const demoRequests: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/demo/session")) demoRequests.push(r.url());
+  });
+  await page.route("**/api/auth/config", (route) =>
+    route.fulfill({ json: { mode: "NEP413", paymentMode: "L0" } }),
+  );
+  await page.route("**/api/me", (route) =>
+    route.fulfill({ status: 401, json: { error: "UNAUTHENTICATED" } }),
+  );
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "需要钱包登录" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("模拟身份")).toBeHidden();
+  expect(demoRequests).toEqual([]);
+});

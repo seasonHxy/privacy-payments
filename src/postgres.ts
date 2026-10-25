@@ -72,26 +72,32 @@ export class PostgresRepository {
       await client.query(
         "CREATE TABLE IF NOT EXISTS schema_migrations (version integer PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())",
       );
-      const sql = await readFile(
-        new URL("../migrations/001_relational.sql", import.meta.url),
-        "utf8",
-      );
-      const hash = createHash("sha256").update(sql).digest("hex");
-      const old = await client.query(
-        "SELECT checksum FROM schema_migrations WHERE version=1",
-      );
-      if (old.rowCount)
-        check(
-          old.rows[0].checksum === hash,
-          "MIGRATION_CHECKSUM_MISMATCH",
-          500,
+      for (const [version, file] of [
+        [1, "001_relational.sql"],
+        [2, "002_auth.sql"],
+      ] as const) {
+        const sql = await readFile(
+          new URL("../migrations/" + file, import.meta.url),
+          "utf8",
         );
-      else {
-        await client.query(sql);
-        await client.query(
-          "INSERT INTO schema_migrations(version,checksum) VALUES(1,$1)",
-          [hash],
+        const hash = createHash("sha256").update(sql).digest("hex");
+        const old = await client.query(
+          "SELECT checksum FROM schema_migrations WHERE version=$1",
+          [version],
         );
+        if (old.rowCount)
+          check(
+            old.rows[0].checksum === hash,
+            "MIGRATION_CHECKSUM_MISMATCH",
+            500,
+          );
+        else {
+          await client.query(sql);
+          await client.query(
+            "INSERT INTO schema_migrations(version,checksum) VALUES($1,$2)",
+            [version, hash],
+          );
+        }
       }
       for (const workspace of ["demo", "other"])
         await client.query(
