@@ -65,3 +65,9 @@ npm run test:e2e
 2. SDK 父窗口 postMessage 注册可能伪装 manifest.type=injected。现在要求实际 InjectedWallet 类实例，并固定已检查对象调用，拒绝父窗口传输替换；浏览器有伪造消息反例。
 
 新增审查覆盖 L0/L1 接口和数据库隔离、精确账户/角色、同源 JSON、配置缺失、未知 RPC 结果、随机 memo 与完整 args、事件唯一与迟到 CAS。没有添加访问密钥或广播交易。所有签名和 RPC 都是测试 fixture；独立审查不是生产安全认证。
+
+## 本轮 L1 版本与会计披露独立复核
+
+独立复核检查签名前编辑与prepare竞态、原始幂等输入、旧批准/报价、UNKNOWN锁定、具体版本/接收人/字段/期限、下载/导出/撤权缓存以及其他API旁路。审查建议已处理：审计记录明确VERSION_CREATED / DISCLOSURE_GRANTED / DISCLOSURE_REVOKED、当前版本与对象ID；revokedAt使用是否定义判断，避免epoch0误判。会计me/settings不会返回未授权资产合约或付款账户。
+
+审查者独立执行新增闭环10/10（9子+1父）和增强HTTP1/1，未发现阻断性权限或核销漏洞。主线程另外实测浏览器的版本编辑、旧版字段/附件读取下载、撤权后403。完整检查见ACCEPTANCE.md；没有真实账户、钱包或链上验收，也不是生产渗透测试。

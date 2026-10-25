@@ -34,4 +34,6 @@
 
 L2 仍需已验证的 Confidential Intents 能力、历史查询权限、实际到账及退款证据；继续 BLOCKED。认证和 PostgreSQL 测试通过不改变 L1/L2 交付等级。
 
-本轮已补充实际浏览器 → 官方 SDK → Express → PostgreSQL 登录/退出测试，钱包与 RPC 为受控 mock；L1 HTTP 权限、模式隔离、并发、回滚和 UNKNOWN 恢复亦已实测。见 WALLET.md、L1.md、ACCEPTANCE.md。L1 当前不支持版本编辑、会计披露、自动 storage 注册或退款，费用限额需在钱包中再审阅。
+本轮已补充实际浏览器 → 官方 SDK → Express → PostgreSQL 登录/退出测试，钱包与 RPC 为受控 mock；L1 HTTP 权限、模式隔离、并发、回滚和 UNKNOWN 恢复亦已实测。见 WALLET.md、L1.md、ACCEPTANCE.md。L1 现已支持签名前版本编辑、会计逐字段披露、附件鉴权和撤权；仍不支持自动 storage 注册或退款，费用限额需在钱包中再审阅。
+
+会计对账需要在已有真实认证成员配置中确认唯一accountant公开账户。该身份只读取明确授权单据字段，不获得花费能力；无需新增钱包密钥或持久授权。

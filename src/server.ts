@@ -34,7 +34,8 @@ export function createApp(
         auth.config.genesisHash === l1.config.genesisHash &&
         auth.config.rpcUrl === l1.config.rpcUrl &&
         auth.config.members[l1.config.payer] === "payer" &&
-        auth.config.members[l1.config.recipient] === "recipient",
+        auth.config.members[l1.config.recipient] === "recipient" &&
+        (!l1.accountant || auth.config.members[l1.accountant] === "accountant"),
       "L1_AUTH_CONFIGURATION_MISMATCH",
       500,
     );
@@ -188,6 +189,10 @@ export function createApp(
   const actor = (res: express.Response) => res.locals.identity as L1Actor;
   app.get("/api/l1/settings", (_req, res) => {
     const a = actor(res);
+    if (l1 && a.user === "accountant" && a.accountId === l1.accountant) {
+      res.json({ enabled: true, role: "accountant" });
+      return;
+    }
     check(
       l1 &&
         ((a.user === "payer" && a.accountId === l1.config.payer) ||
@@ -205,6 +210,7 @@ export function createApp(
       },
       payer: l1.config.payer,
       recipient: l1.config.recipient,
+      accountant: l1.accountant,
     });
   });
   app.get("/api/l1/invoices", async (_req, res) =>
@@ -224,6 +230,28 @@ export function createApp(
   app.get("/api/l1/invoices/:id", async (req, res) =>
     res.json(await l1!.get(actor(res), req.params.id)),
   );
+  app.patch("/api/l1/invoices/:id", async (req, res) => {
+    const b = z
+      .object({
+        expectedVersion: z.number().int().positive(),
+        payload: z.unknown(),
+      })
+      .strict()
+      .parse(req.body);
+    res.json(
+      await l1!.edit(actor(res), req.params.id, b.expectedVersion, b.payload),
+    );
+  });
+  app.get("/api/l1/invoices/:id/attachment", async (req, res) => {
+    const v = z.coerce.number().int().positive().parse(req.query.version);
+    const file = await l1!.attachment(actor(res), req.params.id, v);
+    res
+      .set({
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": "attachment; filename=l1-invoice-note.txt",
+      })
+      .send(file.content);
+  });
   app.post("/api/l1/invoices/:id/approve", async (req, res) => {
     const b = z.object({ version: z.number().int() }).strict().parse(req.body);
     res.json(await l1!.approve(actor(res), req.params.id, b.version));
@@ -260,6 +288,33 @@ export function createApp(
   app.post("/api/l1/invoices/:id/acknowledgement", async (req, res) =>
     res.json(await l1!.acknowledge(actor(res), req.params.id)),
   );
+  app.get("/api/l1/disclosures", async (_req, res) =>
+    res.json(await l1!.grants(actor(res))),
+  );
+  app.post("/api/l1/disclosures", async (req, res) =>
+    res.status(201).json(await l1!.grant(actor(res), req.body)),
+  );
+  app.get("/api/l1/disclosures/:id", async (req, res) =>
+    res.json(await l1!.disclosure(actor(res), req.params.id)),
+  );
+  app.get("/api/l1/disclosures/:id/export", async (req, res) => {
+    const data = await l1!.disclosure(actor(res), req.params.id);
+    res
+      .set("Content-Disposition", "attachment; filename=l1-disclosure.json")
+      .json(data);
+  });
+  app.get("/api/l1/disclosures/:id/attachment", async (req, res) => {
+    const file = await l1!.disclosedAttachment(actor(res), req.params.id);
+    res
+      .set({
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": "attachment; filename=l1-disclosed-note.txt",
+      })
+      .send(file.content);
+  });
+  app.delete("/api/l1/disclosures/:id", async (req, res) =>
+    res.json(await l1!.revoke(actor(res), req.params.id)),
+  );
   app.use("/api", (req, _res, next) => {
     check(!l1 || req.path === "/me", "L0_DISABLED_IN_L1_MODE", 403);
     next();
@@ -268,13 +323,16 @@ export function createApp(
     res.json({
       user: res.locals.user,
       ...members[res.locals.user as User],
-      asset: l1
-        ? {
-            symbol: "testUSD",
-            decimals: l1.config.decimals,
-            contract: l1.config.contract,
-          }
-        : asset,
+      asset:
+        l1 && res.locals.user === "accountant"
+          ? undefined
+          : l1
+            ? {
+                symbol: "testUSD",
+                decimals: l1.config.decimals,
+                contract: l1.config.contract,
+              }
+            : asset,
       mode: l1 ? "L1" : "L0",
       notice: l1 ? "公开测试网 testUSD，无美元价值；不会自动付款。" : NOTICE,
       levels: {
@@ -419,12 +477,10 @@ export function createApp(
   );
   app.use(express.static(resolve("public")));
   app.use(async (_req, res) =>
-    res
-      .status(404)
-      .json({
-        error: "NOT_FOUND",
-        notice: l1 ? "公开测试网待签模式，无自动付款。" : NOTICE,
-      }),
+    res.status(404).json({
+      error: "NOT_FOUND",
+      notice: l1 ? "公开测试网待签模式，无自动付款。" : NOTICE,
+    }),
   );
   app.use(
     (
@@ -533,6 +589,10 @@ if (
             chainId: paymentConfig.chainId,
             genesisHash: paymentConfig.genesisHash,
           }),
+          undefined,
+          Object.entries(auth.config.members).find(
+            ([, role]) => role === "accountant",
+          )?.[0],
         );
       }
     }

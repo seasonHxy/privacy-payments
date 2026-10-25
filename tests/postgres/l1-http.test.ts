@@ -47,7 +47,15 @@ test("L1 HTTP actual auth + PostgreSQL, mock RPC only; no simulator access", asy
     },
     f.rpc,
   );
-  const l1 = new L1Service(pool, key, f.config, f.rpc);
+  let now = Date.now();
+  const l1 = new L1Service(
+    pool,
+    key,
+    f.config,
+    f.rpc,
+    () => now,
+    "viewer-fixture.testnet",
+  );
   assert.throws(
     () => createApp(repo.api(), origin, undefined, { l1 }),
     /L1_AUTH_CONFIGURATION/,
@@ -63,9 +71,10 @@ test("L1 HTTP actual auth + PostgreSQL, mock RPC only; no simulator access", asy
     cookie = "",
     body?: unknown,
     extra: Record<string, string> = {},
+    method = "POST",
   ) =>
     fetch(base + "/api" + path, {
-      method: body === undefined ? "GET" : "POST",
+      method: body === undefined ? "GET" : method,
       headers: {
         Origin: origin,
         "Content-Type": "application/json",
@@ -111,7 +120,13 @@ test("L1 HTTP actual auth + PostgreSQL, mock RPC only; no simulator access", asy
       rc = await login(f.config.recipient, recipient),
       vc = await login("viewer-fixture.testnet", viewer);
     assert.equal((await request("/invoices", pc)).status, 403);
-    assert.equal((await request("/l1/settings", vc)).status, 403);
+    assert.deepEqual(await (await request("/l1/settings", vc)).json(), {
+      enabled: true,
+      role: "accountant",
+    });
+    const viewerMe = await (await request("/me", vc)).json();
+    assert.equal(viewerMe.asset, undefined);
+    assert.equal(JSON.stringify(viewerMe).includes(f.config.contract), false);
     assert.equal((await request("/l1/invoices", vc)).status, 403);
     assert.equal(
       (
@@ -230,6 +245,142 @@ test("L1 HTTP actual auth + PostgreSQL, mock RPC only; no simulator access", asy
       (await pool.query("SELECT count(*) FROM invoices")).rows[0].count,
       "0",
     );
+    // Scope, attachment and export all use the same current authorization, including conditional reads.
+    const payload = {
+      amountAtomic: "100",
+      purpose: "HIDDEN_SCOPE_PURPOSE",
+      attachment: {
+        name: "note.txt",
+        type: "text/plain",
+        content: "OLD_SCOPE_ATTACHMENT",
+      },
+    };
+    const scoped = await (
+      await request("/l1/invoices", pc, payload, {
+        "Idempotency-Key": "scoped-http-fixture",
+      })
+    ).json();
+    const scopedPath = "/l1/invoices/" + scoped.id;
+    await request(scopedPath + "/approve", pc, { version: 1 });
+    const oq = await (await request(scopedPath + "/quote", pc, {})).json();
+    const edit = await request(
+      scopedPath,
+      pc,
+      {
+        expectedVersion: 1,
+        payload: {
+          ...payload,
+          amountAtomic: "101",
+          attachment: {
+            ...payload.attachment,
+            content: "NEW_SCOPE_ATTACHMENT",
+          },
+        },
+      },
+      {},
+      "PATCH",
+    );
+    assert.equal(edit.status, 200);
+    assert.equal((await edit.json()).version, 2);
+    assert.equal(
+      (
+        await request(scopedPath + "/confirm", pc, {
+          version: 1,
+          quoteFingerprint: oq.quote.fingerprint,
+        })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await request(
+          scopedPath,
+          vc,
+          { expectedVersion: 2, payload },
+          {},
+          "PATCH",
+        )
+      ).status,
+      403,
+    );
+    const ownFile = await request(scopedPath + "/attachment?version=1", pc);
+    assert.equal(await ownFile.text(), "OLD_SCOPE_ATTACHMENT");
+    assert.equal(ownFile.headers.get("cache-control"), "no-store");
+    assert.match(ownFile.headers.get("content-disposition")!, /^attachment/);
+    const grantBody = {
+      invoiceId: scoped.id,
+      version: 1,
+      recipient: "viewer-fixture.testnet",
+      fields: ["amountAtomic", "attachment"],
+      expiresAt: now + 60000,
+    };
+    assert.equal((await request("/l1/disclosures", rc, grantBody)).status, 403);
+    const gr = await request("/l1/disclosures", pc, grantBody);
+    assert.equal(gr.status, 201);
+    const g = await gr.json(),
+      gp = "/l1/disclosures/" + g.id;
+    assert.equal((await request(gp + "/export")).status, 401);
+    assert.equal((await request(gp, rc)).status, 403);
+    const revealed = await (await request(gp, vc)).json();
+    assert.equal(revealed.fields.amountAtomic, "100");
+    assert.deepEqual(Object.keys(revealed.fields).sort(), [
+      "amountAtomic",
+      "attachment",
+    ]);
+    for (const secret of [
+      payload.purpose,
+      "OLD_SCOPE_ATTACHMENT",
+      "NEW_SCOPE_ATTACHMENT",
+      f.config.payer,
+      f.config.contract,
+    ])
+      assert.equal(JSON.stringify(revealed).includes(secret), false);
+    const exported = await request(gp + "/export", vc);
+    assert.equal(exported.status, 200);
+    assert.deepEqual(await exported.json(), revealed);
+    assert.equal(exported.headers.get("cache-control"), "no-store");
+    assert.match(exported.headers.get("content-disposition")!, /^attachment/);
+    const file = await request(gp + "/attachment", vc);
+    assert.equal(await file.text(), "OLD_SCOPE_ATTACHMENT");
+    assert.equal(file.headers.get("cache-control"), "no-store");
+    assert.equal(file.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(
+      (await request(scopedPath + "/attachment?version=1", vc)).status,
+      403,
+    );
+    assert.equal(
+      (await request("/invoices/" + scoped.id + "/attachment?version=1", vc))
+        .status,
+      403,
+    );
+    assert.equal((await request(gp, vc, {}, {}, "DELETE")).status, 403);
+    assert.equal(
+      (await request(gp, pc, {}, { Origin: "https://evil.invalid" }, "DELETE"))
+        .status,
+      403,
+    );
+    assert.equal((await request(gp, pc, {}, {}, "DELETE")).status, 200);
+    for (const suffix of ["", "/export", "/attachment"]) {
+      const r = await request(gp + suffix, vc, undefined, {
+        "If-None-Match": "*",
+        "If-Modified-Since": new Date().toUTCString(),
+      });
+      assert.equal(r.status, 403);
+      assert.equal(r.headers.get("cache-control"), "no-store");
+    }
+    const exp = await (
+      await request("/l1/disclosures", pc, {
+        ...grantBody,
+        expiresAt: now + 1000,
+      })
+    ).json();
+    now += 1001;
+    for (const suffix of ["", "/export", "/attachment"])
+      assert.equal(
+        (await request("/l1/disclosures/" + exp.id + suffix, vc)).status,
+        403,
+      );
+    assert.deepEqual(await (await request("/l1/disclosures", vc)).json(), []);
     assert.ok(
       f.rpcControl.calls.every((c) =>
         ["query", "status", "tx_status", "block"].includes(c.method),

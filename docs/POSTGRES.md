@@ -75,3 +75,9 @@ PostgresRepository 使用真实 `pg.Pool` 获取一个 client，事务中验证�
 ## 本轮 L1 独立命名空间
 
 migration003 增加 l1_invoices 与 l1_events；总计三份迁移、15张表（含 schema_migrations）。L1 金额、审批、报价、请求、执行引用、原始证据和审计时间线均在认证加密 payload 内，数据库暴露 UUID、revision、HMAC 幂等及事件相等关系。L0 行不会被 L1 读取或结清。L1 是单付款人/单收款人配置下的独立不可变 v1 工作流，尚无版本编辑和会计披露迁移；不可把这项简化当作完整多租户模式。最终测试数量见 ACCEPTANCE.md。
+
+## 本轮版本与披露迁移004
+
+共4份迁移、17张表（包含schema_migrations）。新增l1_invoice_versions以(invoice_id,version)联合主键、SQL不可变触发器保护版本密文；l1_disclosures以联合外键绑定具体版本，接收人索引为HMAC。授权期限/撤权时间列与密文逐项比对。旧v1加密单据安全补录到版本表，不另建L1账单；新版本缺失直接拒绝。编辑、授权和撤权均在既有invoice行锁与revision CAS事务中完成，失败全部回滚。
+
+最终PG计数45=4父测试+41实际子/独立测试：认证8、既有持久化10、L1付款流程11、版本/披露9、HTTP1、真实浏览器L0/L1各1。全部使用实际PostgreSQL 18.6；NEAR钱包和RPC均fixture。SQLite启动的Playwright套件不承载真实认证服务端测试，不能把其套件名称当作这些认证测试的数据库类型。

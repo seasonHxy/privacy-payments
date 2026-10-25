@@ -52,3 +52,7 @@ Node 24 LTS + Express 5 + TypeScript，独立静态前端，SQLite WAL。单个�
 Payload: `{amountAtomic, asset:'mock:USD', network:'mock-local', recipient:'recipient', address:'demo:…', purpose, attachment?:{name,type:'text/plain',content}}`。附件名限制字符，内容 UTF-8 最大 65536 bytes。浏览器仅支持 .txt。
 
 Grant: `{invoiceId,version,recipient:'accountant',fields,expiresAt}`。字段白名单 amountAtomic/asset/network/purpose/address/evidence；期限最多 30 天。证据字段是 source/final/success/receivedAcknowledged 摘要，不绕过地址和金额字段授权。接口自身的账单 ID、版本、L0 模式和模拟提示始终返回。
+
+## L1 版本与披露补齐
+
+在原L1Service和l1_invoices上扩展，不另起支付流。版本号从固定1改为递增，迁移004保存独立加密不可变版本；原v1按密钥安全补录。签名前编辑清除当前批准/报价并保留失效历史，签名后锁定。披露将版本与明确accountant绑定，API对字段投影、JSON导出和附件下载使用同一授权规则。会计不能调用完整invoice接口或从me/settings读到资产详情；普通payer/recipient下载与grant下载分别鉴权。settlement字段只含当前授权版本的狭窄摘要，不附原始receipt；老版本没有新版本的到账证据。退款仍UNSUPPORTED，未知结果必须人工核对。当前SDK/RPC边界及接口详见L1.md。

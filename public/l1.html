@@ -44,6 +44,12 @@
                 maxlength="200"
                 required
             /></label>
+            <label
+              >纯文本附件（可选，最大64 KiB）<textarea
+                id="create-attachment"
+                maxlength="65536"
+              ></textarea>
+            </label>
             <button type="submit">创建 L1 测试账单</button>
           </form>
           <label
@@ -59,6 +65,33 @@
           <section class="card">
             <h2>2. 审批不可变版本</h2>
             <pre id="invoice"></pre>
+            <details>
+              <summary>不可变版本历史</summary>
+              <pre id="version-history"></pre>
+            </details>
+            <form id="edit-form" hidden>
+              <label
+                >修改原子单位金额<input
+                  id="edit-amount"
+                  pattern="[1-9][0-9]*"
+                  required
+              /></label>
+              <label
+                >修改用途<input id="edit-purpose" maxlength="500" required
+              /></label>
+              <label
+                >修改纯文本附件（留空移除）<textarea
+                  id="edit-attachment"
+                  maxlength="65536"
+                ></textarea>
+              </label>
+              <button type="submit">保存新版本，失效旧审批</button>
+              <p>
+                收款方、网络与资产由单一允许配置固定，不能通过编辑绕过白名单。进入待签或提交后禁止修改。
+              </p>
+            </form>
+            <label>历史附件版本<select id="attachment-version"></select></label>
+            <button id="owner-attachment" type="button">下载该版本附件</button>
             <button id="approve" type="button">批准当前版本</button>
           </section>
           <section class="card">
@@ -74,7 +107,9 @@
             <pre id="signing">尚未生成待签请求</pre>
             <p class="small">
               待签请求不表示已执行。请逐项核对网络、合约、收款方、金额、gas
-              和附加 NEAR；报价过期须重新确认。该直接转账路径不提供自动退款。
+              和附加 NEAR；报价过期须重新确认。该直接 ft_transfer
+              无法由应用任意撤回，不提供自动退款；未来 Confidential Intents
+              退款属于不同通道，尚未支持。异常进入人工核对，不能自动重付。
             </p>
           </section>
           <section class="card">
@@ -102,6 +137,32 @@
           </section>
         </div>
       </div>
+      <section id="disclosure-workspace" class="card" hidden>
+        <h2>5. 逐版本、逐字段授权对账</h2>
+        <p>
+          会计只能读取明确授权的版本和字段；附件下载需要单独包含附件字段。撤权拒绝新的读取与下载，不能收回已经下载的内容。不授予花费权限。
+        </p>
+        <form id="grant-form" hidden>
+          <label>授权版本<select id="grant-version"></select></label>
+          <label>指定会计公开账户<input id="grant-recipient" readonly /></label>
+          <fieldset id="grant-fields">
+            <legend>允许字段（默认不选）</legend>
+          </fieldset>
+          <label
+            >有效分钟数（最多30天）<input
+              id="grant-minutes"
+              type="number"
+              min="1"
+              max="43200"
+              value="60"
+              required
+          /></label>
+          <button type="submit">授予只读访问</button>
+        </form>
+        <button id="refresh-grants" type="button">刷新授权记录</button>
+        <div id="grants"></div>
+        <pre id="disclosure-output"></pre>
+      </section>
       <footer>
         仅限配置明确的 NEAR 测试网。L0 模拟记录与 L1 记录隔离；L2
         保密结算仍未启用。账户权限由服务端核验。

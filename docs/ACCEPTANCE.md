@@ -122,3 +122,39 @@
 已人工查看 `/tmp/privacy-payments-l1.png` 的实际浏览器fixture页面，准确显示testUSD无美元价值、配置、审批、待签请求及证据；截图仅假数据，不纳入文本源码包。
 
 交付仍称 **L0可运行原型 + L1配置式待签/核验代码（fixture验收）**。L1目前不可编辑v1、不支持会计逐单披露、自动storage注册或退款，gas limit不是网络费用价格上限；不是完整生产MVP，不是实际L1或L2付款验收。最终测试适用本轮本地提交的代码；随后仅更新验收文本和打包。
+
+## 本轮 L1 版本与会计字段披露最终验收（以本节为准）
+
+执行 `TEST_DATABASE_URL=... bash scripts/ci.sh` 全量通过。其后补齐一个浏览器transport fixture的空授权列表响应和初始化无错误断言，重跑两组Playwright与lint通过。日志：`/tmp/privacy-payments-final-checks.log`、`/tmp/pp-e2e-final.log`，均只在执行环境，不打入源码包。
+
+| 检查 | 计数与结果 | 数据库与mock边界 |
+| --- | --- | --- |
+| lint / typecheck / build | PASS | 同源SDK构建通过，依赖未新增或升级 |
+| 通用Node测试 | 28顶层，28通过，0失败/跳过 | L0单元/HTTP及NEP-413与只读RPC反例，含SQLite模拟路径 |
+| PostgreSQL Node集成 | 45计数=4父+41叶，全部通过 | 实际PostgreSQL 18.6；4父内分别8认证+10既有存储+11L1流程+9版本披露子测试=38，另1HTTP+2实际浏览器=41叶 |
+| SQLite服务启动的Playwright套件 | 10顶层，全部通过 | 2个实际L0 UI流程+1认证界面mock+3L1路由mock+4官方SDK钱包mock；真实认证并不在SQLite后端运行 |
+| PostgreSQL服务启动的Playwright套件 | 10顶层，全部通过 | 前述2个L0 UI流程改用PG，其余8个仍为明确mock；实际认证/L1后端浏览器属于上方PG Node的2项 |
+| 独立审查 | PASS，建议已处理 | 独立重跑闭环10/10（9子+父）与HTTP1/1，未发现阻断性漏洞 |
+| GitHub Actions、部署、Library | NOT RUN | 本轮只本地提交，不推送、不部署、不上传 |
+| 真实账户、钱包签名、链RPC或交易 | NOT RUN | 内存测试签名、假账户和mock RPC；没有真实L1到账验收 |
+| L2 Confidential Intents | BLOCKED | 先前核实的无测试网/邀请历史权限与完整证据缺口未解除 |
+
+本轮新增`tests/postgres/l1-closure.test.ts`的9组断言：
+
+1. 编辑产生不可变版本，SQL更新/删除被拒绝；旧审批与指纹不可执行；原创建幂等参数复用、异参数冲突。
+2. 仅改附件也失效审批；非纯文本MIME、超过64KiB UTF-8内容拒绝。
+3. 并发编辑和edit/prepare行锁竞态只允许一个成功。
+4. 待签、已提交、UNKNOWN阶段拒绝编辑和重新准备，不重付。
+5. 指定版本/接收人/字段隔离，其他单据与原始证据不泄漏；未配置接收人、未知字段、到期拒绝。
+6. 老版本附件保持旧内容；无附件字段不能下载；撤权/到期拒绝新读取与下载，审计可定位授权。
+7. v2只有自己的准确请求、网络与receipt才可核销；旧版本摘要不冒领新版本结算，已结清仍不可编辑。
+8. SQL失败回滚新版本/授权，授权期限篡改被认证绑定拒绝；密文无假数据明文标记。
+9. 旧格式v1单据安全补录，原内容保留并可继续创建v2。
+
+增强HTTP测试还断言会计me/settings最小返回、越权PATCH、普通附件旁路拒绝、导出与附件重新鉴权、CSRF撤权拒绝、撤权后带If-None-Match/If-Modified-Since仍403且no-store。增强实际PG浏览器测试经过真实SDK/Express/NEP413/PG，payer编辑v2后授权v1，accountant真实会话读取选定字段、导出JSON、下载v1附件，撤权后清空显示并拒绝新下载。只mock钱包与RPC，不mock应用HTTP。
+
+中间一次浏览器检查因含选项的select控件使用过严精确标签定位而超时，已修正并重跑；另修正同步schema错误与Promise拒绝的测试调用一致性。最终无失败/跳过。业务实现、fixture验证与真实未执行的界限不变。
+
+SDK明确为 **@hot-labs/near-connect 0.11.4**。允许RPC仅status、query(view_access_key及ft_metadata/storage_balance_of/ft_balance_of只读call_function)、tx_status、block。固定HTTPS配置端点、testnet chain_id和genesis_hash，每次业务查询前检查网络与同步状态；query=final，交易要求FINAL，执行receipt的block_hash和timestamp_nanosec绑定确认时间窗口。信任配置RPC，不是轻客户端证明。没有签名/广播交易或自动退款API。
+
+当前交付：L0可运行原型与补齐版本/逐字段披露的L1待签/核验代码，fixture验收通过；真实L1尚未执行，非生产MVP。直接ft_transfer自动退款未支持、不能任意撤回；异常保留人工核对，与未来L2退款严格区分。

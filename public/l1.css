@@ -137,3 +137,21 @@ footer {
     font-size: 28px;
   }
 }
+
+textarea {
+  width: 100%;
+  min-height: 5rem;
+  padding: 0.7rem;
+  border: 1px solid #ccd9cd;
+  border-radius: 0.4rem;
+  box-sizing: border-box;
+  font: inherit;
+}
+input[type="checkbox"] {
+  width: auto;
+  margin-right: 0.6rem;
+}
+fieldset {
+  border: 1px solid #ccd9cd;
+  margin: 1rem 0;
+}

@@ -56,6 +56,7 @@ test("L1 browser fixture: review only, manual reference, UNKNOWN reload and reci
           recipient: "recipient-fixture.testnet",
         },
       });
+    if (path === "/api/l1/disclosures") return route.fulfill({ json: [] });
     if (request.method() === "GET")
       return route.fulfill({
         json: path.endsWith("/invoices") ? (invoice ? [invoice] : []) : invoice,
@@ -198,6 +199,7 @@ test("L1 expired quote never reaches confirmation endpoint", async ({
     const request = route.request();
     if (request.method() !== "GET") writes.push(request.url());
     const path = new URL(request.url()).pathname;
+    if (path.endsWith("disclosures")) return route.fulfill({ json: [] });
     return route.fulfill({
       json: path.endsWith("config")
         ? { enabled: true }
@@ -207,6 +209,7 @@ test("L1 expired quote never reaches confirmation endpoint", async ({
     });
   });
   await page.goto("/l1.html#expired-fixture");
+  await expect(page.getByRole("status")).toHaveText("");
   await page.getByRole("button", { name: "确认当前报价全部条件" }).click();
   await expect(page.getByRole("status")).toContainText("QUOTE_EXPIRED");
   expect(writes).toEqual([]);

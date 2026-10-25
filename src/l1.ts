@@ -30,19 +30,81 @@ export const l1ConfigSchema = z
   })
   .strict()
   .refine((v) => v.payer !== v.recipient);
+export const l1AttachmentSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    type: z.literal("text/plain"),
+    content: z
+      .string()
+      .max(65536)
+      .refine((v) => Buffer.byteLength(v, "utf8") <= 65536),
+  })
+  .strict();
+const invoiceInput = z
+  .object({
+    amountAtomic: atomic,
+    purpose: z.string().min(1).max(500),
+    attachment: l1AttachmentSchema.optional(),
+  })
+  .strict();
+export const disclosureFields = [
+  "amountAtomic",
+  "purpose",
+  "asset",
+  "network",
+  "payer",
+  "recipient",
+  "attachment",
+  "settlement",
+] as const;
+export type L1Version = {
+  invoiceId: string;
+  version: number;
+  createdAt: number;
+  fingerprint: string;
+  payload: z.infer<typeof invoiceInput> & {
+    asset: { contract: string; symbol: "testUSD"; decimals: number };
+    network: { chainId: "testnet"; genesisHash: string };
+    payer: string;
+    recipient: string;
+  };
+};
+type L1Grant = {
+  id: string;
+  invoiceId: string;
+  version: number;
+  recipient: string;
+  fields: (typeof disclosureFields)[number][];
+  expiresAt: number;
+  revokedAt?: number;
+  configTag: string;
+  createdAt: number;
+};
 export type L1Config = z.infer<typeof l1ConfigSchema>;
 export type L1Actor = { accountId: string; user: User };
 export type L1Invoice = {
   id: string;
   mode: "L1";
-  version: 1;
+  version: number;
   revision: number;
   state: string;
   configTag: string;
   amountAtomic: string;
   purpose: string;
+  attachment?: z.infer<typeof l1AttachmentSchema>;
+  retiredPayments?: {
+    version: number;
+    invalidatedAt: number;
+    approval?: L1Invoice["approval"];
+    quote?: L1Invoice["quote"];
+  }[];
   createdAt: number;
-  approval?: { version: 1; accountId: string; at: number };
+  approval?: {
+    version: number;
+    fingerprint?: string;
+    accountId: string;
+    at: number;
+  };
   quote?: {
     fingerprint: string;
     expiresAt: number;
@@ -72,7 +134,14 @@ export type L1Invoice = {
   reference?: string;
   evidence?: unknown;
   acknowledgedAt?: number;
-  audit?: { actor: string; state: string; at: number }[];
+  audit?: {
+    actor: string;
+    state: string;
+    at: number;
+    event?: string;
+    version?: number;
+    objectId?: string;
+  }[];
 };
 export class L1Service {
   readonly config: L1Config;
@@ -83,7 +152,9 @@ export class L1Service {
     config: L1Config,
     private rpc: NearReadOnlyRpc,
     private now = () => Date.now(),
+    public readonly accountant?: string,
   ) {
+    if (accountant) nearAccount.parse(accountant);
     this.config = Object.freeze(l1ConfigSchema.parse(config));
     this.configTag = fingerprint(this.config);
     check(key.length === 32, "INVALID_STORAGE_KEY", 500);
@@ -127,6 +198,87 @@ export class L1Service {
     );
     return i;
   }
+  private snapshot(i: L1Invoice, createdAt = this.now()): L1Version {
+    const base = {
+      invoiceId: i.id,
+      version: i.version,
+      createdAt,
+      payload: {
+        amountAtomic: i.amountAtomic,
+        purpose: i.purpose,
+        ...(i.attachment ? { attachment: i.attachment } : {}),
+        asset: {
+          contract: this.config.contract,
+          symbol: this.config.symbol,
+          decimals: this.config.decimals,
+        },
+        network: {
+          chainId: this.config.chainId,
+          genesisHash: this.config.genesisHash,
+        },
+        payer: this.config.payer,
+        recipient: this.config.recipient,
+      },
+    };
+    return { ...base, fingerprint: fingerprint(base) };
+  }
+  private async version(c: Pool | PoolClient, id: string, version: number) {
+    const r = await c.query(
+      "SELECT payload FROM l1_invoice_versions WHERE invoice_id=$1 AND version=$2",
+      [id, version],
+    );
+    check(r.rowCount, "VERSION_NOT_FOUND", 404);
+    const v = unseal<L1Version>(
+      r.rows[0].payload,
+      this.key,
+      `l1:version:${id}:${version}`,
+    );
+    const { fingerprint: binding, ...base } = v;
+    check(
+      v.invoiceId === id &&
+        v.version === version &&
+        binding === fingerprint(base),
+      "VERSION_BINDING_MISMATCH",
+      409,
+    );
+    return v;
+  }
+  private async insertVersion(c: Pool | PoolClient, v: L1Version) {
+    await c.query(
+      "INSERT INTO l1_invoice_versions(invoice_id,version,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+      [
+        v.invoiceId,
+        v.version,
+        seal(v, this.key, `l1:version:${v.invoiceId}:${v.version}`),
+      ],
+    );
+    const saved = await this.version(c, v.invoiceId, v.version);
+    check(
+      saved.fingerprint === v.fingerprint,
+      "VERSION_IMMUTABILITY_CONFLICT",
+      409,
+    );
+    return saved;
+  }
+  private async ensureVersion(c: Pool | PoolClient, i: L1Invoice) {
+    const r = await c.query(
+      "SELECT 1 FROM l1_invoice_versions WHERE invoice_id=$1 AND version=$2",
+      [i.id, i.version],
+    );
+    // Only the pre-existing immutable v1 format may be lazily backfilled. Never recreate missing later versions.
+    if (!r.rowCount) {
+      check(i.version === 1, "VERSION_MISSING", 409);
+      await this.insertVersion(c, this.snapshot(i, i.createdAt));
+    }
+    const v = await this.version(c, i.id, i.version);
+    check(
+      fingerprint(v.payload) ===
+        fingerprint(this.snapshot(i, v.createdAt).payload),
+      "INVOICE_VERSION_MISMATCH",
+      409,
+    );
+    return v;
+  }
   async list(a: L1Actor) {
     this.reader(a);
     const r = await this.pool.query("SELECT * FROM l1_invoices ORDER BY id");
@@ -139,15 +291,21 @@ export class L1Service {
       id,
     ]);
     check(r.rowCount, "NOT_FOUND", 404);
-    return this.decode(r.rows[0]);
+    const i = this.decode(r.rows[0]);
+    await this.ensureVersion(this.pool, i);
+    const rows = await this.pool.query(
+      "SELECT version FROM l1_invoice_versions WHERE invoice_id=$1 ORDER BY version",
+      [id],
+    );
+    const versions = await Promise.all(
+      rows.rows.map((r) => this.version(this.pool, id, r.version)),
+    );
+    return { ...i, versions };
   }
   async create(a: L1Actor, body: unknown, key: string) {
     this.payer(a);
     z.string().min(8).max(128).parse(key);
-    const b = z
-      .object({ amountAtomic: atomic, purpose: z.string().min(1).max(500) })
-      .strict()
-      .parse(body);
+    const b = invoiceInput.parse(body);
     const c = await this.pool.connect();
     try {
       await c.query("BEGIN");
@@ -172,8 +330,16 @@ export class L1Service {
           [this.tag("key:" + key)],
         ),
         old = this.decode(r.rows[0]);
+      await this.ensureVersion(c, old);
+      const initial = await this.version(c, old.id, 1);
       check(
-        old.amountAtomic === b.amountAtomic && old.purpose === b.purpose,
+        fingerprint({
+          amountAtomic: initial.payload.amountAtomic,
+          purpose: initial.payload.purpose,
+          ...(initial.payload.attachment
+            ? { attachment: initial.payload.attachment }
+            : {}),
+        }) === fingerprint(b),
         "IDEMPOTENCY_CONFLICT",
         409,
       );
@@ -191,6 +357,8 @@ export class L1Service {
     id: string,
     fn: (i: L1Invoice, c: PoolClient) => void | Promise<void>,
     recipient = false,
+    event = "STATE_UPDATED",
+    objectId = id,
   ) {
     if (recipient) this.reader(a);
     else this.payer(a);
@@ -206,9 +374,17 @@ export class L1Service {
       check(r.rowCount, "NOT_FOUND", 404);
       const i = this.decode(r.rows[0]);
       const rev = i.revision;
+      await this.ensureVersion(c, i);
       await fn(i, c);
       i.audit ??= [];
-      i.audit.push({ actor: a.user, state: i.state, at: this.now() });
+      i.audit.push({
+        actor: a.user,
+        state: i.state,
+        at: this.now(),
+        event,
+        version: i.version,
+        objectId,
+      });
       i.revision++;
       const saved = await c.query(
         "UPDATE l1_invoices SET revision=$2,payload=$3 WHERE id=$1 AND revision=$4",
@@ -224,14 +400,65 @@ export class L1Service {
       c.release();
     }
   }
+  async edit(a: L1Actor, id: string, expectedVersion: number, body: unknown) {
+    z.number().int().positive().parse(expectedVersion);
+    const b = invoiceInput.parse(body);
+    return this.mutate(
+      a,
+      id,
+      async (i, c) => {
+        check(i.version === expectedVersion, "VERSION_CONFLICT", 409);
+        check(
+          ["CREATED", "APPROVED", "QUOTED", "CONFIRMED"].includes(i.state) &&
+            !i.reference,
+          "PAYMENT_LOCKED",
+          409,
+        );
+        i.retiredPayments ??= [];
+        if (i.approval || i.quote)
+          i.retiredPayments.push({
+            version: i.version,
+            invalidatedAt: this.now(),
+            approval: i.approval,
+            quote: i.quote,
+          });
+        i.version++;
+        i.amountAtomic = b.amountAtomic;
+        i.purpose = b.purpose;
+        if (b.attachment) i.attachment = b.attachment;
+        else delete i.attachment;
+        delete i.approval;
+        delete i.quote;
+        delete i.confirmedAt;
+        delete i.evidence;
+        delete i.acknowledgedAt;
+        i.state = "CREATED";
+        await this.insertVersion(c, this.snapshot(i));
+      },
+      false,
+      "VERSION_CREATED",
+    );
+  }
+  async attachment(a: L1Actor, id: string, version: number) {
+    await this.get(a, id);
+    z.number().int().positive().parse(version);
+    const v = await this.version(this.pool, id, version);
+    check(v.payload.attachment, "ATTACHMENT_NOT_FOUND", 404);
+    return v.payload.attachment;
+  }
   approve(a: L1Actor, id: string, version: number) {
-    return this.mutate(a, id, (i) => {
+    return this.mutate(a, id, async (i, c) => {
       check(
-        version === 1 && ["CREATED", "APPROVED"].includes(i.state),
+        version === i.version && ["CREATED", "APPROVED"].includes(i.state),
         "VERSION_OR_STATE_CONFLICT",
         409,
       );
-      i.approval = { version: 1, accountId: a.accountId, at: this.now() };
+      i.approval = {
+        version: i.version,
+        fingerprint: (await this.version(c, id, i.version)).fingerprint,
+        accountId: a.accountId,
+        at: this.now(),
+      };
       i.state = "APPROVED";
     });
   }
@@ -280,7 +507,8 @@ export class L1Service {
   quote(a: L1Actor, id: string) {
     return this.mutate(a, id, async (i) => {
       check(
-        i.approval && ["APPROVED", "QUOTED", "CONFIRMED"].includes(i.state),
+        i.approval?.version === i.version &&
+          ["APPROVED", "QUOTED", "CONFIRMED"].includes(i.state),
         "APPROVAL_REQUIRED",
         409,
       );
@@ -341,7 +569,7 @@ export class L1Service {
     return this.mutate(a, id, (i) => {
       check(
         i.state === "QUOTED" &&
-          version === 1 &&
+          version === i.version &&
           i.quote?.fingerprint === quoteFingerprint,
         "QUOTE_BINDING_MISMATCH",
         409,
@@ -520,5 +748,216 @@ export class L1Service {
       },
       true,
     );
+  }
+  private grantReader(a: L1Actor) {
+    check(
+      a.user === "accountant" &&
+        this.accountant &&
+        a.accountId === this.accountant,
+      "DISCLOSURE_RECIPIENT_REQUIRED",
+      403,
+    );
+  }
+  private decodeGrant(row: any): L1Grant {
+    const g = unseal<L1Grant>(row.payload, this.key, "l1:disclosure:" + row.id);
+    check(
+      g.id === row.id &&
+        g.invoiceId === row.invoice_id &&
+        g.version === row.version &&
+        g.expiresAt === Number(row.expires_at) &&
+        (g.revokedAt ?? null) ===
+          (row.revoked_at === null ? null : Number(row.revoked_at)) &&
+        g.configTag === this.configTag &&
+        this.tag("recipient:" + g.recipient).equals(row.recipient_tag),
+      "DISCLOSURE_BINDING_MISMATCH",
+      409,
+    );
+    return g;
+  }
+  async grant(a: L1Actor, body: unknown) {
+    this.payer(a);
+    const b = z
+      .object({
+        invoiceId: z.string().uuid(),
+        version: z.number().int().positive(),
+        recipient: nearAccount,
+        fields: z
+          .array(z.enum(disclosureFields))
+          .min(1)
+          .max(disclosureFields.length)
+          .refine((f) => new Set(f).size === f.length),
+        expiresAt: z.number().int().safe(),
+      })
+      .strict()
+      .parse(body);
+    check(
+      this.accountant && b.recipient === this.accountant,
+      "DISCLOSURE_RECIPIENT_NOT_CONFIGURED",
+      403,
+    );
+    check(
+      b.expiresAt > this.now() && b.expiresAt <= this.now() + 30 * 86400000,
+      "INVALID_DISCLOSURE_EXPIRY",
+      400,
+    );
+    const g: L1Grant = {
+      id: randomUUID(),
+      ...b,
+      configTag: this.configTag,
+      createdAt: this.now(),
+    };
+    await this.mutate(
+      a,
+      b.invoiceId,
+      async (_i, c) => {
+        const v = await this.version(c, b.invoiceId, b.version);
+        if (b.fields.includes("attachment"))
+          check(v.payload.attachment, "ATTACHMENT_NOT_FOUND", 404);
+        await c.query(
+          "INSERT INTO l1_disclosures(id,invoice_id,version,recipient_tag,expires_at,payload) VALUES($1,$2,$3,$4,$5,$6)",
+          [
+            g.id,
+            g.invoiceId,
+            g.version,
+            this.tag("recipient:" + g.recipient),
+            g.expiresAt,
+            seal(g, this.key, "l1:disclosure:" + g.id),
+          ],
+        );
+      },
+      false,
+      "DISCLOSURE_GRANTED",
+      g.id,
+    );
+    return this.grantMetadata(g);
+  }
+  private grantMetadata(g: L1Grant) {
+    return {
+      id: g.id,
+      invoiceId: g.invoiceId,
+      version: g.version,
+      recipient: g.recipient,
+      fields: g.fields,
+      expiresAt: g.expiresAt,
+      revokedAt: g.revokedAt,
+    };
+  }
+  async grants(a: L1Actor) {
+    if (a.user === "payer") this.payer(a);
+    else this.grantReader(a);
+    const r =
+      a.user === "payer"
+        ? await this.pool.query("SELECT * FROM l1_disclosures ORDER BY id")
+        : await this.pool.query(
+            "SELECT * FROM l1_disclosures WHERE recipient_tag=$1 AND revoked_at IS NULL AND expires_at>$2 ORDER BY id",
+            [this.tag("recipient:" + a.accountId), this.now()],
+          );
+    return r.rows
+      .map((row) => this.decodeGrant(row))
+      .map((g) => this.grantMetadata(g));
+  }
+  private async authorizedGrant(a: L1Actor, id: string) {
+    this.grantReader(a);
+    z.string().uuid().parse(id);
+    const r = await this.pool.query(
+      "SELECT * FROM l1_disclosures WHERE id=$1",
+      [id],
+    );
+    check(r.rowCount, "DISCLOSURE_FORBIDDEN", 403);
+    const g = this.decodeGrant(r.rows[0]);
+    check(
+      g.recipient === a.accountId &&
+        g.revokedAt === undefined &&
+        g.expiresAt > this.now(),
+      "DISCLOSURE_FORBIDDEN",
+      403,
+    );
+    return g;
+  }
+  async disclosure(a: L1Actor, id: string) {
+    const g = await this.authorizedGrant(a, id);
+    const v = await this.version(this.pool, g.invoiceId, g.version);
+    const fields: Record<string, unknown> = {};
+    for (const field of g.fields) {
+      if (field === "attachment") {
+        const file = v.payload.attachment;
+        check(file, "ATTACHMENT_NOT_FOUND", 404);
+        fields.attachment = {
+          name: file.name,
+          type: file.type,
+          bytes: Buffer.byteLength(file.content, "utf8"),
+        };
+      } else if (field === "settlement") {
+        const r = await this.pool.query(
+          "SELECT * FROM l1_invoices WHERE id=$1",
+          [g.invoiceId],
+        );
+        check(r.rowCount, "NOT_FOUND", 404);
+        const i = this.decode(r.rows[0]);
+        fields.settlement =
+          i.version === g.version
+            ? {
+                status: i.state,
+                verified: i.state === "VERIFIED_SUCCESS",
+                recipientAcknowledged: Boolean(i.acknowledgedAt),
+                source: i.evidence ? "PINNED_TESTNET_RPC" : "NOT_QUERIED",
+                refund: "UNSUPPORTED_DIRECT_TRANSFER",
+              }
+            : {
+                status: "NO_SETTLEMENT_FOR_VERSION",
+                verified: false,
+                recipientAcknowledged: false,
+              };
+      } else fields[field] = v.payload[field];
+    }
+    // Repeat authorization after storage reads: an expiry/revoke during assembly must not return stale access.
+    await this.authorizedGrant(a, id);
+    return {
+      mode: "L1",
+      notice:
+        "公开测试网 testUSD，无美元价值。只读披露不授予花费权；撤权不收回已下载内容。",
+      invoiceId: g.invoiceId,
+      version: g.version,
+      fields,
+    };
+  }
+  async disclosedAttachment(a: L1Actor, id: string) {
+    const g = await this.authorizedGrant(a, id);
+    check(g.fields.includes("attachment"), "ATTACHMENT_FORBIDDEN", 403);
+    const v = await this.version(this.pool, g.invoiceId, g.version);
+    check(v.payload.attachment, "ATTACHMENT_NOT_FOUND", 404);
+    await this.authorizedGrant(a, id);
+    return v.payload.attachment;
+  }
+  async revoke(a: L1Actor, id: string) {
+    this.payer(a);
+    z.string().uuid().parse(id);
+    const r = await this.pool.query(
+      "SELECT * FROM l1_disclosures WHERE id=$1",
+      [id],
+    );
+    check(r.rowCount, "NOT_FOUND", 404);
+    const original = this.decodeGrant(r.rows[0]);
+    await this.mutate(
+      a,
+      original.invoiceId,
+      async (_i, c) => {
+        const row = (
+          await c.query("SELECT * FROM l1_disclosures WHERE id=$1 FOR UPDATE", [
+            id,
+          ])
+        ).rows[0];
+        const g = this.decodeGrant(row);
+        g.revokedAt ??= this.now();
+        await c.query(
+          "UPDATE l1_disclosures SET revoked_at=$2,payload=$3 WHERE id=$1",
+          [id, g.revokedAt, seal(g, this.key, "l1:disclosure:" + id)],
+        );
+      },
+      false,
+      "DISCLOSURE_REVOKED",
+      id,
+    );
+    return { id, revoked: true };
   }
 }

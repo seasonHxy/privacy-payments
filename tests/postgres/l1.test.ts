@@ -17,6 +17,9 @@ test("L1 isolated persistent workflow, actual PostgreSQL with exclusively mock R
     options: `-c search_path=${schema}`,
   });
   await pool.query(readFileSync("migrations/003_l1.sql", "utf8"));
+  await pool.query(
+    readFileSync("migrations/004_l1_versions_disclosures.sql", "utf8"),
+  );
   const fixture = l1FixtureRpc(),
     key = randomBytes(32);
   let now = Date.now();
